@@ -23,16 +23,21 @@ function parseJwt<T = any>(token: string | null): T | null {
   }
 }
 
-function formatError(err: any) {
-  const d = err?.response?.data;
-  if (!d) return err?.message ?? "Request failed";
+// Consistent error extractor
+const getErrMsg = (err: unknown): string => {
+  const e = err as { response?: { data?: unknown }, message?: string };
+  const d = e?.response?.data;
+  if (!d) return e?.message ?? "Request failed";
   if (typeof d === "string") return d;
-  if ((d as any).detail) {
-    const detail = (d as any).detail;
-    if (typeof detail === "string") return detail;
-    try { return JSON.stringify(detail); } catch { return String(detail); }
-  }
-  try { return JSON.stringify(d); } catch { return String(d); }
+  // try common FastAPI shape
+  // @ts-ignore
+  const detail = (d as any)?.detail;
+  if (typeof detail === "string") return detail;
+  try { return JSON.stringify(detail ?? d); } catch { return String(detail ?? d); }
+};
+
+function formatError(err: unknown): string {
+  return getErrMsg(err);
 }
 
 export default function UnitsPage() {
@@ -66,7 +71,7 @@ export default function UnitsPage() {
     async function ensureRole() {
       if (sessionUser?.role || tokenRole) return; // already have a role
       try {
-        const base = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
+        const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
         const url = base ? `${base}/auth/me` : "/auth/me";
         const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
         const headers: Record<string, string> = {};
@@ -85,7 +90,7 @@ export default function UnitsPage() {
   const isAdmin = role === "admin";
   console.log("UnitsPage detected role:", role);
 
-  const mutation = useMutation<Unit, any, { name: string}>({
+  const mutation = useMutation<Unit, unknown, { name: string}>({
     mutationFn: (payload: { name: string }) => {
       if (!tenantId) throw new Error("Missing tenantId");
       return createUnit(tenantId, payload);
@@ -99,21 +104,18 @@ export default function UnitsPage() {
       setName("");
       setNameError("");
     },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: formatError(error),
-      });
+    onError: (error: unknown) => {
+      toast({ title: "Error", description: formatError(error) });
     },
   });
 
-  const delMut = useMutation<string, any, string>({
+  const delMut = useMutation<string, unknown, string>({
     mutationFn: (id: string) => deleteUnit(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["units", tenantId] });
       toast({ title: "Unit deleted", description: "The unit was removed." });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({ title: "Delete failed", description: formatError(error) });
     },
   });

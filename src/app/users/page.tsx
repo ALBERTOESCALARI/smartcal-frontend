@@ -19,12 +19,25 @@ import {
   type User,
 } from "@/features/users/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import * as React from "react";
 
+// Unified error extractor (hoisted so it's available everywhere)
+function getErrMsg(err: unknown): string {
+  const e = err as { response?: { data?: unknown; status?: number }; status?: number; message?: string };
+  const d = e?.response?.data;
+  if (!d) return e?.message ?? "Request failed";
+  if (typeof d === "string") return d;
+  const detail = (d as { detail?: string })?.detail;
+  if (typeof detail === "string") return detail;
+  try { return JSON.stringify(detail ?? d); } catch { return String(detail ?? d); }
+}
+
 // Admin bulk import helper
-async function postBulkUsers(tenantId: string, payload: any) {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+async function postBulkUsers(tenantId: string, payload: unknown) {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
   if (!tenantId) throw new Error("Missing tenant id");
+
   const url = `${base}/users/bulk?tenant_id=${encodeURIComponent(tenantId)}`;
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
@@ -39,9 +52,13 @@ async function postBulkUsers(tenantId: string, payload: any) {
   });
 
   const text = await res.text();
-  let data: any; try { data = JSON.parse(text); } catch { data = text; }
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { data = text; }
+
   if (!res.ok) {
-    const msg = typeof data === "object" ? JSON.stringify(data) : String(data);
+    const msg = typeof data === "string"
+      ? data
+      : (() => { try { return JSON.stringify(data); } catch { return String(data); } })();
     throw new Error(`Bulk import failed (${res.status}): ${msg}`);
   }
   return data;
@@ -76,9 +93,9 @@ function BulkImportPanel({ tenantId, onDone }: { tenantId: string; onDone?: () =
               const res = await postBulkUsers(tenantId, payload);
               setMsg(`Created: ${res.created}, Skipped: ${res.skipped}`);
               onDone?.();
-            } catch (e: any) {
-              setMsg(e?.message || "Bulk import failed");
-            } finally {
+            } catch (e: unknown) {
+            setMsg(getErrMsg(e) || "Bulk import failed");
+              } finally {
               setBusy(false);
             }
           }}
@@ -310,16 +327,16 @@ const filteredUsers = React.useMemo(() => {
   payload: { email?: string; name?: string; role?: string; credentials?: Credential };
 }) => updateUser(tenantId, args.id, args.payload),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
-      const v: any = variables as any;
-      if (v?.id) {
-        setEdits((prev) => {
-          const next = { ...prev } as any;
-          delete next[v.id];
-          return next;
-        });
-      }
-    },
+  queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
+  const v = variables as { id: string };
+  if (v?.id) {
+    setEdits((prev) => {
+      const next = { ...prev };
+      delete (next as Record<string, unknown>)[v.id];
+      return Object.fromEntries(Object.entries(next)) as Record<string, { email?: string; name?: string; role?: string; credentials?: Credential }>;
+    });
+  }
+},
   });
 
   const deleteMut = useMutation({
@@ -332,17 +349,18 @@ const filteredUsers = React.useMemo(() => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
     },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      const status = err?.response?.status || err?.status;
-      const msg =
-        typeof detail === "string"
-          ? detail
-          : status
-          ? `Failed to unlock (status ${status})`
-          : err?.message || "Failed to unlock user";
-      alert(msg);
-    },
+    onError: (err: unknown) => {
+  const e = err as { response?: { data?: { detail?: string }; status?: number }; status?: number; message?: string };
+  const detail = e?.response?.data?.detail;
+  const status = e?.response?.status ?? e?.status;
+  const msg =
+    typeof detail === "string"
+      ? detail
+      : status
+      ? `Failed to unlock (status ${status})`
+      : e?.message || "Failed to unlock user";
+  alert(msg);
+},
   });
 
   const createInvite = useMutation({
@@ -380,9 +398,10 @@ const filteredUsers = React.useMemo(() => {
         setPwNew("");
       }, 1500);
     },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      const status = err?.response?.status;
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { detail?: string }; status?: number } };
+      const detail = e?.response?.data?.detail;
+      const status = e?.response?.status;
       const msg =
         typeof detail === "string"
           ? detail

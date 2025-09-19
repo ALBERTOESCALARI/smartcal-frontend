@@ -130,8 +130,20 @@ function getDisplayName(u: User): string {
   return pre || "User";
 }
 
+// Narrow error helper to avoid broad `any` while preserving behavior
+const getErrMsg = (err: unknown) => {
+  const e = err as { response?: { data?: unknown }, message?: string };
+  const d = e?.response?.data as any;
+  if (!d) return e?.message ?? "Unexpected error";
+  if (typeof d === "string") return d;
+  // try common FastAPI shape
+  // @ts-ignore allow optional indexing
+  const detail = (d as any)?.detail;
+  return (typeof detail === "string" ? detail : e?.message) ?? "Unexpected error";
+};
+
 function getEmployeeId(u: User): string {
-  return (u as any).employee_id || "";
+  return (u as { employee_id?: string })?.employee_id ?? "";
 }
 
 function getPrimaryCredential(u: User): string {
@@ -303,9 +315,9 @@ const meQ = useQuery({
       toast({ title: "Shift created" });
       setNotes("");
     },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail ?? "Failed to create shift";
-      toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to create shift";
+      toast({ title: "Error", description: msg });
     },
   });
 
@@ -326,9 +338,9 @@ const meQ = useQuery({
       toast({ title: "Shifts created" });
       setNotes("");
     },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail ?? err?.message ?? "Failed to create shifts";
-      toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to create shifts";
+      toast({ title: "Error", description: msg });
     },
   });
 function applyTemplate(name: string, baseDate?: Date) {
@@ -380,12 +392,11 @@ function applyTemplate(name: string, baseDate?: Date) {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
       toast({ title: "Shift deleted" });
     },
-    onError: (err: any, vars) => {
-      const d = err?.response?.data;
-      const msg = typeof d === "string" ? d : (d?.detail ?? err?.message ?? "Failed to delete shift");
+    onError: (err: unknown, vars) => {
+      const msg = getErrMsg(err) ?? "Failed to delete shift";
       toast({
         title: "Error deleting shift",
-        description: `id=${vars?.id} • tenant=${tenantId || "(none)"} • ${typeof msg === "string" ? msg : JSON.stringify(msg)}`,
+        description: `id=${vars?.id} • tenant=${tenantId || "(none)"} • ${msg}`,
       });
     },
   });
@@ -404,10 +415,9 @@ function applyTemplate(name: string, baseDate?: Date) {
     toast({ title: "Shifts deleted" });
     clearSelection();
   },
-  onError: (err: any) => {
-    const d = err?.response?.data;
-    const msg = typeof d === "string" ? d : (d?.detail ?? err?.message ?? "Failed to delete shifts");
-    toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+  onError: (err: unknown) => {
+    const msg = getErrMsg(err) ?? "Failed to delete shifts";
+    toast({ title: "Error", description: msg });
   },
 });
 
@@ -437,10 +447,9 @@ function applyTemplate(name: string, baseDate?: Date) {
     setEditingId("");
     setEUnitId(""); setEUserId(""); setEStart(""); setEEnd(""); setEStatus("");
   },
-  onError: (err: any) => {
-    const d = err?.response?.data;
-    const msg = typeof d === "string" ? d : (d?.detail ?? err?.message ?? "Failed to update shift");
-    toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+  onError: (err: unknown) => {
+    const msg = getErrMsg(err) ?? "Failed to update shift";
+    toast({ title: "Error", description: msg });
   },
   });
 
@@ -488,9 +497,9 @@ function applyTemplate(name: string, baseDate?: Date) {
       if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
       toast({ title: "You signed up for this shift" });
     },
-    onError: (err: any) => {
-      const d = err?.response?.data; const msg = typeof d === "string" ? d : (d?.detail ?? err?.message ?? "Failed to take shift");
-      toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to take shift";
+      toast({ title: "Error", description: msg });
     },
   });
 
@@ -504,9 +513,9 @@ function applyTemplate(name: string, baseDate?: Date) {
       if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
       toast({ title: "Shift released" });
     },
-    onError: (err: any) => {
-      const d = err?.response?.data; const msg = typeof d === "string" ? d : (d?.detail ?? err?.message ?? "Failed to release shift");
-      toast({ title: "Error", description: typeof msg === "string" ? msg : JSON.stringify(msg) });
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to release shift";
+      toast({ title: "Error", description: msg });
     },
   });
 

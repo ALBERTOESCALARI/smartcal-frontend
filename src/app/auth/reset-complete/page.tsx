@@ -1,14 +1,16 @@
-"use client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { completePasswordReset } from "@/features/users/api";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-export default function ResetCompletePage() {
-  const sp = useSearchParams();
-  const token = sp.get("token") || "";
+export default function ResetCompletePage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
+  const token = (Array.isArray(searchParams.token) ? searchParams.token[0] : searchParams.token) || "";
   const router = useRouter();
   const [pw, setPw] = useState("");
   const [msg, setMsg] = useState<string | null>(null);

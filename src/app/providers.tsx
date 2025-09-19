@@ -14,7 +14,7 @@ function IdleLogout() {
       if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
       timeoutRef.current = window.setTimeout(() => {
         try {
-          localStorage.removeItem("token"); // keep tenant_id
+          localStorage.clear();
           sessionStorage.clear();
         } catch {}
         router.replace("/login?reason=expired");
