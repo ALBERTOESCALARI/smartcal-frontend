@@ -12,12 +12,15 @@ const nextConfig = {
       { source: "/swaps/:path*", destination: `${API}/swaps/:path*` },
     ];
   },
-  eslint: {
-    ignoreDuringBuilds: true,
+
+  async redirects() {
+    return [
+      { source: "/", destination: "/login", permanent: false },
+    ];
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
 };
 
 module.exports = nextConfig;
