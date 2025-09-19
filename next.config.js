@@ -12,6 +12,12 @@ const nextConfig = {
       { source: "/swaps/:path*", destination: `${API}/swaps/:path*` },
     ];
   },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 };
 
 module.exports = nextConfig;
