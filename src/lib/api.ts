@@ -17,7 +17,11 @@ function notifyForbidden(message: string) {
 }
 
 export const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000",
+  baseURL:
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://127.0.0.1:8000",
+  timeout: 15000,
 });
 
 api.interceptors.request.use((config) => {
@@ -28,10 +32,15 @@ api.interceptors.request.use((config) => {
     }
 
     // ✅ Always send tenant_id as query param if saved, with act_as_tenant_id override
-    const actAsTenantId = sessionStorage.getItem("act_as_tenant_id");
-    const tenantId = actAsTenantId || localStorage.getItem("tenant_id");
-    if (tenantId) {
-      config.params = { ...(config.params || {}), tenant_id: tenantId };
+    // ...but skip auth routes to avoid confusing the backend
+    const urlStr = String(config.url || "");
+    const isAuthRoute = urlStr.startsWith("/auth") || urlStr.includes("/auth/");
+    if (!isAuthRoute) {
+      const actAsTenantId = sessionStorage.getItem("act_as_tenant_id");
+      const tenantId = actAsTenantId || localStorage.getItem("tenant_id");
+      if (tenantId) {
+        config.params = { ...(config.params || {}), tenant_id: tenantId };
+      }
     }
   }
   return config;
@@ -75,7 +84,10 @@ if (
       }
 
       if (status === 403) {
-        notifyForbidden("You don’t have access to that resource.");
+        const msg =
+          (typeof data === "string" ? data : data?.detail) ||
+          "You don’t have access to that resource.";
+        notifyForbidden(msg);
       }
 
       return Promise.reject(error);
