@@ -5,13 +5,6 @@ const nextConfig = {
   turbopack: {
     root: __dirname, // explicitly set root to this project folder
   },
-
-  // Temporary switch to silence the useSearchParams Suspense build error
-  // (We already patched pages, but this ensures builds won’t block.)
-  experimental: {
-    missingSuspenseWithCSRBailout: false,
-  },
-
   async rewrites() {
     const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
     return [

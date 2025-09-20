@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { completePasswordReset } from "@/features/users/api";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 // Unified error message extractor
@@ -17,9 +17,11 @@ function getErrMsg(err: unknown): string {
   return detail ?? e?.message ?? "Request failed";
 }
 
-export default function ResetCompleteClient() {
-  const sp = useSearchParams();
-  const token = sp.get("token") || "";
+interface ResetCompleteClientProps {
+  token: string;
+}
+
+export default function ResetCompleteClient({ token }: ResetCompleteClientProps) {
   const router = useRouter();
 
   const [pw, setPw] = useState("");
