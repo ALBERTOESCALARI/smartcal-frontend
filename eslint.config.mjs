@@ -1,6 +1,5 @@
-// eslint.config.mjs
 export default [
   {
-    ignores: ['**/*'],
+    ignores: ["**/node_modules/**", "**/.next/**"],
   },
 ];

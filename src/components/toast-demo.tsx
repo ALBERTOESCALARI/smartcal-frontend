@@ -20,9 +20,8 @@ export default function LoginPage() {
       await login(email, password);
       toast({ title: "Signed in", description: "Welcome back 👋" });
       router.push("/");
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || "An unexpected error occurred";
-      toast({ title: "Login failed", description: detail });
+    } catch (err: unknown) {
+      toast({ title: "Login failed", description: getErrorMessage(err) });
     }
   }
 
@@ -59,4 +58,22 @@ export default function LoginPage() {
       </Card>
     </div>
   );
+}
+function getErrorMessage(err: unknown): string {
+  if (!err) return "An unexpected error occurred";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "An unexpected error occurred";
+
+  if (typeof err === "object") {
+    const maybeError = err as {
+      response?: { data?: { detail?: string } | string };
+      message?: string;
+    };
+    const data = maybeError.response?.data;
+    const detail = typeof data === "string" ? data : data?.detail;
+    if (detail) return detail;
+    if (maybeError.message) return maybeError.message;
+  }
+
+  return "An unexpected error occurred";
 }

@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSession } from "../../features/auth/useSession";
 
-function parseJwt<T = any>(token: string | null): T | null {
+function parseJwt<T = Record<string, unknown>>(token: string | null): T | null {
   try {
     if (!token) return null;
     const part = token.split(".")[1];
@@ -25,15 +25,29 @@ function parseJwt<T = any>(token: string | null): T | null {
 
 // Consistent error extractor
 const getErrMsg = (err: unknown): string => {
-  const e = err as { response?: { data?: unknown }, message?: string };
-  const d = e?.response?.data;
-  if (!d) return e?.message ?? "Request failed";
-  if (typeof d === "string") return d;
-  // try common FastAPI shape
-  // @ts-ignore
-  const detail = (d as any)?.detail;
-  if (typeof detail === "string") return detail;
-  try { return JSON.stringify(detail ?? d); } catch { return String(detail ?? d); }
+  if (!err) return "Request failed";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "Request failed";
+
+  if (typeof err === "object") {
+    const maybe = err as {
+      response?: { data?: { detail?: string } | string };
+      message?: string;
+    };
+    const data = maybe.response?.data;
+    const detail = typeof data === "string" ? data : data?.detail;
+    if (detail) return detail;
+    if (maybe.message) return maybe.message;
+    if (data) {
+      try {
+        return JSON.stringify(data);
+      } catch {
+        return String(data);
+      }
+    }
+  }
+
+  return "Request failed";
 };
 
 function formatError(err: unknown): string {
@@ -62,8 +76,19 @@ export default function UnitsPage() {
 
   const { data: sessionUser } = useSession();
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const claims = parseJwt<any>(token);
-  const tokenRole = (claims?.role || (Array.isArray(claims?.roles) ? claims.roles[0] : undefined)) as string | undefined;
+
+  interface TokenClaims {
+    role?: string;
+    roles?: string[];
+  }
+
+  const claims = parseJwt<TokenClaims>(token);
+  const tokenRole =
+    typeof claims?.role === "string"
+      ? claims.role
+      : Array.isArray(claims?.roles)
+      ? claims.roles[0]
+      : undefined;
 
   const [roleFromMe, setRoleFromMe] = useState<string | null>(null);
   useEffect(() => {

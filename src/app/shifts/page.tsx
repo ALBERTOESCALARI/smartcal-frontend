@@ -47,8 +47,67 @@ async function fetchUsers(tenantId: string) {
 }
 
 // current session user (id, email, role)
-async function fetchMe() {
-  const { data } = await api.get<{ id?: string; user_id?: string; email: string; role?: string }>("/auth/me");
+type AuthMeResponse = {
+  id?: string;
+  user_id?: string;
+  email?: string;
+  role?: string;
+  name?: string;
+  employee_id?: string;
+  user?: {
+    id?: string;
+    user_id?: string;
+    email?: string;
+    role?: string;
+    name?: string;
+    employee_id?: string;
+  } | null;
+};
+
+type AuthSnapshot = {
+  id?: string;
+  email?: string;
+  role?: string;
+  name?: string;
+  employee_id?: string;
+};
+
+function extractAuthSnapshot(value: unknown): AuthSnapshot {
+  if (!value || typeof value !== "object") return {};
+
+  const source = value as {
+    id?: unknown;
+    user_id?: unknown;
+    email?: unknown;
+    role?: unknown;
+    name?: unknown;
+    employee_id?: unknown;
+    user?: unknown;
+  };
+
+  const snapshot: AuthSnapshot = {};
+
+  if (typeof source.id === "string" && source.id) snapshot.id = source.id;
+  if (!snapshot.id && typeof source.user_id === "string" && source.user_id) snapshot.id = source.user_id;
+  if (typeof source.email === "string" && source.email) snapshot.email = source.email;
+  if (typeof source.role === "string" && source.role) snapshot.role = source.role;
+  if (typeof source.name === "string" && source.name) snapshot.name = source.name;
+  if (typeof source.employee_id === "string" && source.employee_id) snapshot.employee_id = source.employee_id;
+
+  if (source.user && typeof source.user === "object") {
+    const nested = extractAuthSnapshot(source.user);
+    snapshot.id = snapshot.id ?? nested.id;
+    snapshot.email = snapshot.email ?? nested.email;
+    snapshot.role = snapshot.role ?? nested.role;
+    snapshot.name = snapshot.name ?? nested.name;
+    snapshot.employee_id = snapshot.employee_id ?? nested.employee_id;
+  }
+
+  return snapshot;
+}
+
+async function fetchMe(): Promise<AuthMeResponse> {
+  const { data } = await api.get<AuthMeResponse>("/auth/me");
   return data;
 }
 
@@ -130,16 +189,35 @@ function getDisplayName(u: User): string {
   return pre || "User";
 }
 
-// Narrow error helper to avoid broad `any` while preserving behavior
-const getErrMsg = (err: unknown) => {
-  const e = err as { response?: { data?: unknown }, message?: string };
-  const d = e?.response?.data as any;
-  if (!d) return e?.message ?? "Unexpected error";
-  if (typeof d === "string") return d;
-  // try common FastAPI shape
-  // @ts-ignore allow optional indexing
-  const detail = (d as any)?.detail;
-  return (typeof detail === "string" ? detail : e?.message) ?? "Unexpected error";
+// Narrow error helper while avoiding `any`
+const getErrMsg = (err: unknown): string => {
+  if (!err) return "Unexpected error";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "Unexpected error";
+
+  if (typeof err === "object") {
+    const maybe = err as {
+      response?: { data?: { detail?: unknown } | string };
+      message?: string;
+    };
+    const data = maybe.response?.data;
+    if (typeof data === "string") return data;
+    const detail =
+      data && typeof data === "object" && "detail" in data
+        ? (data as { detail?: unknown }).detail
+        : undefined;
+    if (typeof detail === "string") return detail;
+    if (maybe.message) return maybe.message;
+    if (data) {
+      try {
+        return JSON.stringify(data);
+      } catch {
+        return String(data);
+      }
+    }
+  }
+
+  return "Unexpected error";
 };
 
 function getEmployeeId(u: User): string {
@@ -380,7 +458,7 @@ function applyTemplate(name: string, baseDate?: Date) {
   return null;
 }
 
-  const delMut = useMutation<string, any, { id: string }>({
+  const delMut = useMutation<string, unknown, { id: string }>({
     mutationFn: async ({ id }) => {
       const tid = tenantId?.trim();
       if (!tid) throw new Error("No tenant selected");
@@ -424,7 +502,7 @@ function applyTemplate(name: string, baseDate?: Date) {
   const updateMut = useMutation({
   mutationFn: () => {
     if (!tenantId || !editingId) throw new Error("No tenant or shift selected");
-    const payload: any = {};
+    const payload: Parameters<typeof updateShift>[2] = {};
     if (eUnitId) payload.unit_id = eUnitId;
     if (eUserId === "__UNASSIGN__") payload.user_id = null;
     else if (eUserId) payload.user_id = eUserId;
@@ -458,25 +536,29 @@ function applyTemplate(name: string, baseDate?: Date) {
       const tid = tenantId?.trim();
   if (!tid) throw new Error("Missing tenant");
 
-    const tokenUser = loadUserFromToken();
+    const tokenUserLatest = loadUserFromToken();
+    const sessionSnapshotLatest = extractAuthSnapshot(sessionUser as SessionUser | null);
+    const tokenSnapshotLatest = extractAuthSnapshot(tokenUserLatest);
+    const meSnapshotLatest = extractAuthSnapshot(meQ.data);
 
      // 1) Try token/session/me for id/email
       let uid: string | undefined =
-      (tokenUser?.id || sessionUser?.id || (meQ.data?.id || (meQ.data as any)?.user_id)) as string | undefined;
+      sessionSnapshotLatest.id || tokenSnapshotLatest.id || meSnapshotLatest.id;
       let email: string | undefined =
-      (tokenUser?.email || sessionUser?.email || (meQ.data?.email as string | undefined));
+      sessionSnapshotLatest.email || tokenSnapshotLatest.email || meSnapshotLatest.email;
 
       // 2) If missing, fetch /auth/me once
       if (!uid) {
         const me = await fetchMe().catch(() => null);
-        uid = ((me as any)?.id || (me as any)?.user_id) as string | undefined;
-        email = (me as any)?.email ?? email;
+        const fetchedSnapshot = extractAuthSnapshot(me);
+        uid = fetchedSnapshot.id ?? uid;
+        email = fetchedSnapshot.email ?? email;
       }
 
       // 3) If still missing, try to resolve via users list (id or email)
       if (!uid && Array.isArray(usersQ.data)) {
         // Try by id first (if /auth/me returned an id/user_id but no email)
-        const cid = (meQ.data?.id || (meQ.data as any)?.user_id) as string | undefined;
+        const cid = meSnapshotLatest.id;
         if (cid && usersQ.data.some(u => u.id === cid)) {
           uid = cid;
         }
@@ -534,18 +616,25 @@ function applyTemplate(name: string, baseDate?: Date) {
   const sessionUser = loadSessionUser();
   const tokenUser = loadUserFromToken();
 
+  const sessionSnapshot = extractAuthSnapshot(sessionUser);
+  const tokenSnapshot = extractAuthSnapshot(tokenUser);
+  const meSnapshot = extractAuthSnapshot(meQ.data);
+
   const currentUserId =
-  (sessionUser?.id || tokenUser?.id || meQ.data?.id || (meQ.data as any)?.user_id) ?? "";
+    sessionSnapshot.id || tokenSnapshot.id || meSnapshot.id || "";
 
   const currentEmail =
-  sessionUser?.email ||
-  tokenUser?.email ||
-  meQ.data?.email ||
-  (Array.isArray(usersQ.data) && currentUserId
-    ? usersQ.data.find((u) => u.id === currentUserId)?.email || ""
-    : "");
-    const currentRole = (sessionUser?.role || (meQ.data as any)?.role || (tokenUser as any)?.role || "member").toLowerCase();
-    const isAdminOrSched = currentRole === "admin" || currentRole === "scheduler" || currentRole === "sched";
+    sessionSnapshot.email ||
+    tokenSnapshot.email ||
+    meSnapshot.email ||
+    (Array.isArray(usersQ.data) && currentUserId
+      ? usersQ.data.find((u) => u.id === currentUserId)?.email || ""
+      : "");
+
+  const currentRole =
+    (sessionSnapshot.role || meSnapshot.role || tokenSnapshot.role || "member").toLowerCase();
+  const isAdminOrSched =
+    currentRole === "admin" || currentRole === "scheduler" || currentRole === "sched";
     const [viewFilter, setViewFilter] = useState<'all' | 'mine'>(() => (isAdminOrSched ? 'all' : 'mine'));
     useEffect(() => { setViewFilter(isAdminOrSched ? 'all' : 'mine'); }, [isAdminOrSched]);
 
@@ -564,8 +653,8 @@ const toggleSelect = (id: string) => {
   setSelectedShiftIds(new Set((filteredShifts || []).map(s => s.id)));
 };  
     // Compose identity string for header: Name • ID: #### • Email
-const displayName = (meQ.data as any)?.name || (sessionUser as any)?.name || "";
-const employeeId = (meQ.data as any)?.employee_id || (sessionUser as any)?.employee_id || "";
+const displayName = meSnapshot.name || sessionSnapshot.name || "";
+const employeeId = meSnapshot.employee_id || sessionSnapshot.employee_id || "";
 const identityParts: string[] = [];
 if (displayName) identityParts.push(displayName);
 if (employeeId) identityParts.push(`ID: ${employeeId}`);
@@ -614,7 +703,7 @@ const identity = identityParts.join(" • ");
       const sd = new Date(s.start_time);
       const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`;
       const assigned = Boolean(s.user_id);
-      const explicitColor = (s as any).color as string | null | undefined;
+      const explicitColor = s.color ?? null;
       // Use explicit color if provided; otherwise blue for assigned, orange for unassigned
       const color = explicitColor ?? (assigned ? "#2563eb" : "#f59e0b");
 
@@ -659,12 +748,8 @@ const identity = identityParts.join(" • ");
       );
     }
     if (viewQ.isError) {
-      const e = viewQ.error as any;
-      const d = e?.response?.data;
-      const msg = !d
-        ? e?.message ?? "Failed to load shift"
-        : (typeof d === "string" ? d : (d.detail ?? d));
-      return <div className="text-sm text-red-600">{typeof msg === "string" ? msg : JSON.stringify(msg)}</div>;
+      const msg = getErrMsg(viewQ.error) || "Failed to load shift";
+      return <div className="text-sm text-red-600">{msg}</div>;
     }
     if (viewQ.data) {
       return (
@@ -711,10 +796,8 @@ const identity = identityParts.join(" • ");
       );
     }
     if (shiftsQ.isError) {
-      const e = shiftsQ.error as any;
-      const d = e?.response?.data;
-      const msg = !d ? (e?.message ?? "Failed to load shifts") : (typeof d === "string" ? d : (d.detail ?? d));
-      return <div className="text-red-600 text-sm">{typeof msg === "string" ? msg : JSON.stringify(msg)}</div>;
+      const msg = getErrMsg(shiftsQ.error) || "Failed to load shifts";
+      return <div className="text-red-600 text-sm">{msg}</div>;
     }
     if (filteredShifts.length === 0) {
       return (
@@ -784,7 +867,7 @@ const identity = identityParts.join(" • ");
                         setEUserId(s.user_id || "");
                         setEStart(toDatetimeLocalInput(new Date(s.start_time)));
                         setEEnd(toDatetimeLocalInput(new Date(s.end_time)));
-                        setEStatus((s as any).status || "");
+                        setEStatus(s.status || "");
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
                     >

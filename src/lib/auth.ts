@@ -21,6 +21,33 @@ export function clearSessionUser() {
   try { localStorage.removeItem("session_user"); } catch {}
 }
 
+function buildSessionUser(data: unknown): SessionUser | null {
+  if (!data || typeof data !== "object") return null;
+
+  const maybe = data as {
+    id?: string;
+    user?: { id?: string; email?: string; role?: string };
+    user_id?: string;
+    email?: string;
+    role?: string;
+  };
+
+  const fromUser = maybe.user;
+  if (fromUser?.id && fromUser?.email) {
+    return { id: fromUser.id, email: fromUser.email, role: fromUser.role ?? maybe.role };
+  }
+
+  if (maybe.id && maybe.email) {
+    return { id: maybe.id, email: maybe.email, role: maybe.role };
+  }
+
+  if (maybe.user_id && maybe.email) {
+    return { id: maybe.user_id, email: maybe.email, role: maybe.role };
+  }
+
+  return null;
+}
+
 export async function login(email: string, password: string) {
   const form = new URLSearchParams();
   form.append("username", email);   // FastAPI expects "username"
@@ -31,10 +58,29 @@ export async function login(email: string, password: string) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
 
-  localStorage.setItem("token", data.access_token);
-  if (data.user?.id && data.user?.email) {
-    saveSessionUser({ id: data.user.id, email: data.user.email, role: data.user.role });
+  const token = data?.access_token;
+  if (!token) {
+    throw new Error("Missing access token in response");
   }
+
+  localStorage.setItem("token", token);
+  clearSessionUser();
+
+  let sessionUser = buildSessionUser(data);
+
+  if (!sessionUser) {
+    try {
+      const { data: meData } = await axios.get(`${base}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      sessionUser = buildSessionUser(meData);
+    } catch {}
+  }
+
+  if (sessionUser) {
+    saveSessionUser(sessionUser);
+  }
+
   return data;
 }
 

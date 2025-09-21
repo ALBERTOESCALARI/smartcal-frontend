@@ -12,7 +12,9 @@ export type User = {
   email: string;
   name?: string | null;
   role?: string | null;     // "admin" | "member"
-  credentials: Credential;  // REQUIRED now
+  credentials?: Credential | string | string[] | null;  // optional to accommodate legacy payloads
+  credential?: string | null;
+  is_locked?: boolean | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -33,21 +35,53 @@ export type CreateUserResponse = User & {
 // ────────────────────────────────────────────────────────────────────────────────
 // Helper: surface422
 // ────────────────────────────────────────────────────────────────────────────────
-function surface422(err: any) {
-  const status = err?.response?.status;
-  const detail = err?.response?.data?.detail;
-  if (status === 422 && detail) {
-    const msg = Array.isArray(detail)
-      ? detail.map((d: any) => `${d?.loc?.join(".")}: ${d?.msg}`).join("; ")
-      : typeof detail === "string"
-      ? detail
-      : JSON.stringify(detail);
-    throw new Error(`Validation failed (422): ${msg}`);
+type ApiValidationItem = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+type ApiErrorResponse = {
+  detail?: string | ApiValidationItem[] | Record<string, unknown>;
+};
+
+type ApiError = {
+  response?: {
+    status?: number;
+    data?: ApiErrorResponse | string;
+  };
+  message?: string;
+};
+
+function surface422(err: unknown): never {
+  const error = err as ApiError;
+  const status = error?.response?.status;
+  const rawData = error?.response?.data;
+  const detailPayload: ApiErrorResponse["detail"] | string | undefined =
+    typeof rawData === "string" ? rawData : rawData?.detail;
+
+  if (status === 422 && detailPayload) {
+    const message = Array.isArray(detailPayload)
+      ? detailPayload
+          .map((item) => {
+            const path = item.loc?.join(".") ?? "field";
+            return `${path}: ${item.msg ?? "invalid"}`;
+          })
+          .join("; ")
+      : typeof detailPayload === "string"
+      ? detailPayload
+      : (() => {
+          try {
+            return JSON.stringify(detailPayload);
+          } catch {
+            return String(detailPayload);
+          }
+        })();
+    throw new Error(`Validation failed (422): ${message}`);
   }
   throw err;
 }
 
-function normalizeCredential(v: any): Credential {
+function normalizeCredential(v: unknown): Credential {
   const s = String(v || "").trim().toLowerCase();
   if (s === "emt") return "EMT";
   if (s === "paramedic") return "Paramedic";
@@ -79,10 +113,10 @@ export async function createUser(
   const email = (payload?.email ?? "").trim();
   if (!email) throw new Error("Email is required");
 
-  const employeeId = (payload as any)?.employee_id?.trim?.() ?? payload.employee_id;
+  const employeeId = payload.employee_id.trim();
   if (!employeeId) throw new Error("Employee ID is required");
 
-  const credentials = normalizeCredential((payload as any).credentials);
+  const credentials = normalizeCredential(payload.credentials);
 
   try {
     const { data } = await api.post<CreateUserResponse>(
@@ -214,24 +248,50 @@ export async function unlockUser(tenantId: string, id: string): Promise<void> {
 // ────────────────────────────────────────────────────────────────────────────────
 // Bulk import (admin): supports optional invite emails
 // ────────────────────────────────────────────────────────────────────────────────
+type BulkUserInput = {
+  email: string;
+  name?: string;
+  employee_id?: string;
+  role?: string;
+  credentials: Credential | string;
+  [key: string]: unknown;
+};
+
+type BulkUsersPayload = { users: BulkUserInput[] } | BulkUserInput[];
+
+type BulkUsersResultItem = {
+  email: string;
+  status: string;
+  error?: string;
+};
+
+type BulkUsersResponse = {
+  created: number;
+  skipped: number;
+  results?: BulkUsersResultItem[];
+  invited?: number;
+};
+
 export async function postBulkUsers(
   tenantId: string,
-  payload: { users: any[] } | any,
+  payload: BulkUsersPayload,
   sendInvites: boolean
-): Promise<{ created: number; skipped: number; results?: any[]; invited?: number }> {
+): Promise<BulkUsersResponse> {
   if (!tenantId) throw new Error("Missing tenantId");
 
-  const body = Array.isArray(payload)
-    ? { users: payload }
-    : (payload?.users ? { users: payload.users } : { users: [] });
+  const bodyUsers = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.users)
+    ? payload.users
+    : [];
 
-  const users = (body.users as any[]).map((u, idx) => {
-    if (!u?.email) throw new Error(`Row ${idx}: email is required`);
-    const cred = normalizeCredential(u.credentials);
-    return { ...u, credentials: cred };
+  const users = bodyUsers.map((user, idx) => {
+    if (!user?.email) throw new Error(`Row ${idx}: email is required`);
+    const cred = normalizeCredential(user.credentials);
+    return { ...user, credentials: cred };
   });
 
-  const params: Record<string, any> = {
+  const params: Record<string, string> = {
     tenant_id: tenantId,
     send_invites: sendInvites ? "true" : "false",
   };
@@ -242,7 +302,7 @@ export async function postBulkUsers(
       { users },
       { params }
     );
-    return data;
+    return data as BulkUsersResponse;
   } catch (err) {
     surface422(err);
     throw err;

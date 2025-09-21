@@ -25,8 +25,8 @@ export default function ResetRequestPage() {
             try {
               await requestPasswordReset(employeeId.trim(), email.trim());
               setMsg("If that email exists, you’ll receive a reset link shortly.");
-            } catch (e: any) {
-              setMsg(e?.response?.data?.detail || e.message || "Failed to request reset");
+            } catch (error: unknown) {
+              setMsg(getErrorMessage(error));
             } finally {
               setBusy(false);
             }
@@ -38,4 +38,22 @@ export default function ResetRequestPage() {
       </div>
     </div>
   );
+}
+function getErrorMessage(err: unknown): string {
+  if (!err) return "Failed to request reset";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "Failed to request reset";
+
+  if (typeof err === "object") {
+    const maybe = err as {
+      response?: { data?: { detail?: string } | string };
+      message?: string;
+    };
+    const data = maybe.response?.data;
+    const detail = typeof data === "string" ? data : data?.detail;
+    if (detail) return detail;
+    if (maybe.message) return maybe.message;
+  }
+
+  return "Failed to request reset";
 }

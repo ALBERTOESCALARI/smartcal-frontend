@@ -24,17 +24,44 @@ import * as React from "react";
 
 // Unified error extractor (hoisted so it's available everywhere)
 function getErrMsg(err: unknown): string {
-  const e = err as { response?: { data?: unknown; status?: number }; status?: number; message?: string };
-  const d = e?.response?.data;
-  if (!d) return e?.message ?? "Request failed";
-  if (typeof d === "string") return d;
-  const detail = (d as { detail?: string })?.detail;
-  if (typeof detail === "string") return detail;
-  try { return JSON.stringify(detail ?? d); } catch { return String(detail ?? d); }
+  if (!err) return "Request failed";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "Request failed";
+
+  if (typeof err === "object") {
+    const maybe = err as {
+      response?: { data?: { detail?: unknown } | string; status?: number };
+      status?: number;
+      message?: string;
+    };
+    const data = maybe.response?.data;
+    if (typeof data === "string") return data;
+    const detail =
+      data && typeof data === "object" && "detail" in data
+        ? (data as { detail?: unknown }).detail
+        : undefined;
+    if (typeof detail === "string") return detail;
+    if (maybe.message) return maybe.message;
+    if (data) {
+      try {
+        return JSON.stringify(data);
+      } catch {
+        return String(data);
+      }
+    }
+  }
+
+  return "Request failed";
 }
 
 // Admin bulk import helper
-async function postBulkUsers(tenantId: string, payload: unknown) {
+type BulkImportResult = {
+  created?: number;
+  skipped?: number;
+  results?: Array<{ email?: string; status?: string; error?: string }>;
+};
+
+async function postBulkUsers(tenantId: string, payload: unknown): Promise<BulkImportResult | string> {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
   if (!tenantId) throw new Error("Missing tenant id");
 
@@ -61,7 +88,56 @@ async function postBulkUsers(tenantId: string, payload: unknown) {
       : (() => { try { return JSON.stringify(data); } catch { return String(data); } })();
     throw new Error(`Bulk import failed (${res.status}): ${msg}`);
   }
-  return data;
+  return data as BulkImportResult | string;
+}
+
+function extractCredentialFromItem(item: unknown): string | undefined {
+  if (typeof item === "string" && item.trim()) return item.trim();
+  if (item && typeof item === "object") {
+    const candidate = (item as {
+      title?: string;
+      name?: string;
+      code?: string;
+      abbreviation?: string;
+      level?: string;
+    });
+    const value =
+      candidate.title ||
+      candidate.name ||
+      candidate.code ||
+      candidate.abbreviation ||
+      candidate.level;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function getCredentialDisplay(user: User): string {
+  const direct = user.credentials;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (Array.isArray(direct)) {
+    const strings = direct
+      .map((item) => extractCredentialFromItem(item))
+      .filter((value): value is string => Boolean(value));
+    if (strings.length > 0) return strings.join(", ");
+  }
+  if (typeof user.credential === "string" && user.credential.trim()) {
+    return user.credential.trim();
+  }
+  return "";
+}
+
+function getCredentialValue(user: User): string {
+  const direct = user.credentials;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (Array.isArray(direct)) {
+    const first = direct.map((item) => extractCredentialFromItem(item)).find(Boolean);
+    if (first) return first;
+  }
+  if (typeof user.credential === "string" && user.credential.trim()) {
+    return user.credential.trim();
+  }
+  return "";
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -91,11 +167,17 @@ function BulkImportPanel({ tenantId, onDone }: { tenantId: string; onDone?: () =
               setBusy(true);
               const payload = JSON.parse(text);
               const res = await postBulkUsers(tenantId, payload);
-              setMsg(`Created: ${res.created}, Skipped: ${res.skipped}`);
+              if (typeof res === "string") {
+                setMsg(res);
+              } else {
+                const created = res.created ?? 0;
+                const skipped = res.skipped ?? 0;
+                setMsg(`Created: ${created}, Skipped: ${skipped}`);
+              }
               onDone?.();
             } catch (e: unknown) {
-            setMsg(getErrMsg(e) || "Bulk import failed");
-              } finally {
+              setMsg(getErrMsg(e) || "Bulk import failed");
+            } finally {
               setBusy(false);
             }
           }}
@@ -117,12 +199,14 @@ export default function UsersPage() {
   const queryClient = useQueryClient();
 
   // Determine current user + role (to restrict page for members)
-const [me, setMe] = React.useState<{
+type MeState = {
   name?: string;
   employee_id?: string;
   email?: string;
   role?: string;
-} | null>(null);
+};
+
+const [me, setMe] = React.useState<MeState | null>(null);
 const [loadingMe, setLoadingMe] = React.useState(true);
 const [authRole, setAuthRole] = React.useState<string>("member");
 const isAdmin = authRole === "admin";
@@ -140,12 +224,12 @@ React.useEffect(() => {
       if (!res.ok) throw new Error("me failed");
       const data = await res.json();
       if (cancelled) return;
-      const nextMe = {
+      const nextMe: MeState = {
         name: data?.name ?? data?.user?.name,
         employee_id: data?.employee_id ?? data?.user?.employee_id,
         email: data?.user?.email,
         role: data?.role ?? data?.user?.role,
-      } as any;
+      };
       setMe(nextMe);
       setAuthRole(String(nextMe.role || "member").toLowerCase());
     } catch {
@@ -259,7 +343,7 @@ function setEdit(
   // ────────────────────────────────────────────────────────────────────────────
   // Data fetching
   // ────────────────────────────────────────────────────────────────────────────
-  const { data: users, isLoading, isError, error } = useQuery({
+  const { data: users, isLoading, isError, error } = useQuery<User[], Error>({
     queryKey: ["users", tenantId],
     queryFn: () => fetchUsers(tenantId),
     enabled: !!tenantId,
@@ -271,7 +355,7 @@ const [selectedUserId, setSelectedUserId] = React.useState<string>(""); // blank
 const [searchName, setSearchName] = React.useState<string>("");
 
 const filteredUsers = React.useMemo(() => {
-  const list = (users as User[] | undefined) ?? [];
+  const list = users ?? [];
   const norm = (s: string) => s.toLowerCase();
 
   // Base set based on dropdown
@@ -300,9 +384,9 @@ const filteredUsers = React.useMemo(() => {
   // ────────────────────────────────────────────────────────────────────────────
   // Mutations
   // ────────────────────────────────────────────────────────────────────────────
-  const createMut = useMutation({
-    mutationFn: (payload: CreateUserPayload) => createUser(tenantId, payload),
-    onSuccess: (data: any) => {
+  const createMut = useMutation<CreateUserResponse, unknown, CreateUserPayload>({
+    mutationFn: (payload) => createUser(tenantId, payload),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
       setEmail("");
       setName("");
@@ -320,32 +404,31 @@ const filteredUsers = React.useMemo(() => {
     },
   });
 
-  const updateMut = useMutation({
-    // AFTER
-    mutationFn: (args: {
-  id: string;
-  payload: { email?: string; name?: string; role?: string; credentials?: Credential };
-}) => updateUser(tenantId, args.id, args.payload),
+  const updateMut = useMutation<
+    User,
+    unknown,
+    { id: string; payload: { email?: string; name?: string; role?: string; credentials?: Credential } }
+  >({
+    mutationFn: ({ id, payload }) => updateUser(tenantId, id, payload),
     onSuccess: (_data, variables) => {
-  queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
-  const v = variables as { id: string };
-  if (v?.id) {
-    setEdits((prev) => {
-      const next = { ...prev };
-      delete (next as Record<string, unknown>)[v.id];
-      return Object.fromEntries(Object.entries(next)) as Record<string, { email?: string; name?: string; role?: string; credentials?: Credential }>;
-    });
-  }
-},
+      queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
+      if (variables.id) {
+        setEdits((prev) => {
+          const next = { ...prev };
+          delete next[variables.id];
+          return next;
+        });
+      }
+    },
   });
 
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => deleteUser(tenantId, id),
+  const deleteMut = useMutation<string, unknown, string>({
+    mutationFn: (id) => deleteUser(tenantId, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users", tenantId] }),
   });
 
-  const unlockMut = useMutation({
-    mutationFn: (args: { id: string }) => unlockUser(tenantId, args.id),
+  const unlockMut = useMutation<void, unknown, { id: string }>({
+    mutationFn: ({ id }) => unlockUser(tenantId, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
     },
@@ -375,10 +458,9 @@ const filteredUsers = React.useMemo(() => {
       setInviteMsg("Invite sent (check email)");
       setTimeout(() => setInviteMsg(null), 2000);
     },
-    onError: (err: any) => {
-      const msg =
-        err?.response?.data?.detail || (err as Error)?.message || "Failed to send invite";
-      setInviteMsg(String(msg));
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) || "Failed to send invite";
+      setInviteMsg(msg);
     },
   });
 
@@ -438,10 +520,16 @@ const filteredUsers = React.useMemo(() => {
   }
 
   function handleSaveRow(user: User) {
-  const patch = edits[user.id] || {};
-  if (!patch.email && !patch.name && !patch.role && !patch.credentials) return; // nothing to save
-  updateMut.mutate({ id: user.id, payload: patch });
-}
+    const patch = edits[user.id];
+    if (!patch) return;
+    const hasChanges =
+      patch.email !== undefined ||
+      patch.name !== undefined ||
+      patch.role !== undefined ||
+      patch.credentials !== undefined;
+    if (!hasChanges) return;
+    updateMut.mutate({ id: user.id, payload: patch });
+  }
 
   function handleDelete(id: string) {
     if (!confirm("Delete this user?")) return;
@@ -452,10 +540,10 @@ const filteredUsers = React.useMemo(() => {
   // Render
   // ────────────────────────────────────────────────────────────────────────────
   if (!mounted) {
-  return <div />;
-}
+    return <div />;
+  }
 
-return (
+  return (
   <RequireAuth>
     {!isAdmin ? (
       <div style={{ padding: 16 }}>
@@ -692,8 +780,8 @@ return (
                 try {
                   const res = await inviteExistingUsers(tenantId, { only_without_password: true });
                   setInviteExistingMsg(`Invited ${res.invited}/${res.total} (only users without password)`);
-                } catch (e: any) {
-                  setInviteExistingMsg(e?.message || "Failed to invite existing users");
+                } catch (error: unknown) {
+                  setInviteExistingMsg(getErrMsg(error) || "Failed to invite existing users");
                 } finally {
                   setInviteAllBusy(false);
                 }
@@ -728,11 +816,12 @@ return (
                   setInviteSelectedBusy(true);
                   try {
                     const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
-                    const ok = res.results.filter((r: any) => r.status === "invited").length;
-                    const fail = res.results.filter((r: any) => r.status === "error").length;
+                    const resultList = res.results ?? [];
+                    const ok = resultList.filter((r) => r.status === "invited").length;
+                    const fail = resultList.filter((r) => r.status === "error").length;
                     setInviteExistingMsg(`Invited: ${ok} • Failed: ${fail}`);
-                  } catch (e: any) {
-                    setInviteExistingMsg(e?.message || "Failed to invite selected");
+                  } catch (error: unknown) {
+                    setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
                   } finally {
                     setInviteSelectedBusy(false);
                   }
@@ -790,13 +879,16 @@ return (
       {/* blank option shows none by default */}
       <option value=""> </option>
       <option value="__ALL__">All employees</option>
-      {(users as User[]).map((u) => (
-        <option key={u.id} value={u.id}>
-          {(u.name && u.name.trim()) ? u.name : u.email}
-          {u.employee_id ? ` · ${u.employee_id}` : ""}
-          {(u as any).credentials ? ` · ${(u as any).credentials}` : ""}
-        </option>
-      ))}
+      {(users ?? []).map((u) => {
+        const credential = getCredentialDisplay(u);
+        return (
+          <option key={u.id} value={u.id}>
+            {(u.name && u.name.trim()) ? u.name : u.email}
+            {u.employee_id ? ` · ${u.employee_id}` : ""}
+            {credential ? ` · ${credential}` : ""}
+          </option>
+        );
+      })}
     </select>
     <input
       type="text"
@@ -829,9 +921,8 @@ return (
                 </tr>
               </thead>
               <tbody>
-                {(filteredUsers as User[] | undefined)?.map((u) => {
-                  const pending =
-                    updateMut.isPending && (updateMut.variables as any)?.id === u.id;
+                {filteredUsers.map((u) => {
+                  const pending = updateMut.isPending && updateMut.variables?.id === u.id;
                   return (
                     <tr key={u.id}>
                       <td style={td}>
@@ -844,7 +935,7 @@ return (
                         />
                       </td>
                       <td style={td}>
-                        <code>{(u as any).employee_id ?? "—"}</code>
+                        <code>{u.employee_id ?? "—"}</code>
                       </td>
                       <td style={td}>
                         <input
@@ -868,23 +959,24 @@ return (
                       </td>
                       <td style={td}>
                         <select
-                       value={edits[u.id]?.credentials ?? ((u as any).credentials || "")}
-                       // AFTER
-                        onChange={(e) => setEdit(u.id, "credentials", e.target.value as Credential)}
+                          value={edits[u.id]?.credentials ?? getCredentialValue(u)}
+                          onChange={(e) => setEdit(u.id, "credentials", e.target.value as Credential)}
                         >
-                         <option value="">(none)</option>
-                         <option value="EMT">EMT</option>
-                       <option value="Paramedic">Paramedic</option>
-                           </select>
-                            </td>
+                          <option value="">(none)</option>
+                          <option value="EMT">EMT</option>
+                          <option value="Paramedic">Paramedic</option>
+                        </select>
+                      </td>
                       <td style={td}>
                         {(() => {
-                          const patch: any = edits[u.id] || {};
-                          const dirty =
-                          patch.email !== undefined ||
-                          patch.name !== undefined ||
-                          patch.role !== undefined ||
-                          patch.credentials !== undefined;
+                          const patch = edits[u.id];
+                          const dirty = Boolean(
+                            patch &&
+                            (patch.email !== undefined ||
+                              patch.name !== undefined ||
+                              patch.role !== undefined ||
+                              patch.credentials !== undefined)
+                          );
                           const disabled = pending || !tenantId || !dirty;
                           return (
                             <button onClick={() => handleSaveRow(u)} disabled={disabled} style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}>
@@ -898,18 +990,18 @@ return (
                         <button onClick={() => handleDelete(u.id)} style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }} disabled={deleteMut.isPending || !tenantId}>
                           {deleteMut.isPending ? "Deleting…" : "Delete"}
                         </button>
-                        {Boolean((u as any).is_locked) && (
+                        {Boolean(u.is_locked) && (
                           <button
                             onClick={() => unlockMut.mutate({ id: u.id })}
                             style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
                             disabled={
                               !tenantId ||
                               (unlockMut.isPending &&
-                                (unlockMut.variables as any)?.id === u.id)
+                                unlockMut.variables?.id === u.id)
                             }
                           >
                             {unlockMut.isPending &&
-                            (unlockMut.variables as any)?.id === u.id
+                            unlockMut.variables?.id === u.id
                               ? "Unlocking…"
                               : "Unlock"}
                           </button>
@@ -918,7 +1010,7 @@ return (
                     </tr>
                   );
                 })}
-                {(!filteredUsers || (filteredUsers as User[]).length === 0) && (
+                {filteredUsers.length === 0 && (
               <tr>
     <td colSpan={6} style={{ padding: 12, fontStyle: "italic", color: "#64748b" }}>
       {selectedUserId === "" && !searchName.trim()

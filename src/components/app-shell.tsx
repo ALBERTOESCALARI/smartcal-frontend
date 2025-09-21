@@ -27,7 +27,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-function parseJwt<T = any>(token: string | null): T | null {
+function parseJwt<T = Record<string, unknown>>(token: string | null): T | null {
   try {
     if (!token) return null;
     const base = token.split(".")[1];
@@ -51,6 +51,43 @@ interface MeUser {
   name?: string;
   employee_id?: string;
 }
+
+type TokenClaims = {
+  id?: string;
+  user_id?: string;
+  uid?: string;
+  sub?: string;
+  email?: string;
+  role?: string;
+  roles?: string[];
+  name?: string;
+  employee_id?: string;
+  emp_id?: string;
+  tenant_id?: string;
+  tenant?: string;
+  org_id?: string;
+  organization_id?: string;
+  [key: string]: unknown;
+};
+
+type MeResponse = {
+  id?: string;
+  email?: string;
+  name?: string;
+  employee_id?: string;
+  role?: string;
+  tenant_id?: string;
+  tenant?: { id?: string } | null;
+  tenants?: Array<{ id?: string } | null>;
+  user?: {
+    id?: string;
+    email?: string;
+    role?: string;
+    name?: string;
+    employee_id?: string;
+    tenant_id?: string;
+  } | null;
+};
 
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
@@ -79,7 +116,7 @@ export default function AppShell({ children }: AppShellProps) {
     setMounted(true);
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     setAuthed(Boolean(token));
-    const claims = parseJwt<any>(token);
+    const claims = parseJwt<TokenClaims>(token);
     if (claims) {
       const emailFromToken =
         typeof claims.email === "string" && claims.email.includes("@")
@@ -95,7 +132,12 @@ export default function AppShell({ children }: AppShellProps) {
       });
 
       // If the token carries a tenant id, lock it in once
-      const tenantFromClaims = claims.tenant_id || claims.tenant || claims.org_id || claims.organization_id;
+      const tenantFromClaims =
+        (typeof claims.tenant_id === "string" && claims.tenant_id) ||
+        (typeof claims.tenant === "string" && claims.tenant) ||
+        (typeof claims.org_id === "string" && claims.org_id) ||
+        (typeof claims.organization_id === "string" && claims.organization_id) ||
+        null;
       if (tenantFromClaims) setTenantIdOnce(String(tenantFromClaims));
     } else {
       setTokenUser(null);
@@ -110,37 +152,51 @@ export default function AppShell({ children }: AppShellProps) {
 
     setLoadingMe(true);
     const meUrl = API_BASE ? `${API_BASE}/auth/me` : "/auth/me";
-    fetch(meUrl, {
-      headers,
-      credentials: "include",
-    })
-      .then(async (r) => (r.ok ? r.json() : Promise.reject(await r.text())))
-      .then((data) => {
-        if (data?.user) {
-          setMe({
-            ...data.user,
-            name: data.name ?? data.user.name,
-            employee_id: data.employee_id ?? (data.user as any)?.employee_id,
-            role: (data as any)?.role ?? (data.user as any)?.role,
-          });
+    const loadMe = async () => {
+      try {
+        const response = await fetch(meUrl, {
+          headers,
+          credentials: "include",
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data: MeResponse = await response.json();
+
+        if (data?.user?.email) {
+          const mePayload: MeUser = {
+            id: data.user.id ?? data.id,
+            email: data.user.email,
+            name: data.name ?? data.user.name ?? undefined,
+            employee_id: data.employee_id ?? data.user.employee_id ?? undefined,
+            role: data.role ?? data.user.role ?? undefined,
+          };
+          setMe(mePayload);
           setAuthed(true);
 
-          // Derive tenant id from /auth/me (first one wins)
-          const t1 = (data as any)?.tenant_id;
-          const t2 = (data?.user as any)?.tenant_id;
-          const t3 = (data as any)?.tenant?.id;
-          const t4 = Array.isArray((data as any)?.tenants) && (data as any).tenants.length === 1 ? (data as any).tenants[0]?.id : undefined;
-          setTenantIdOnce(t1 || t2 || t3 || t4 || null);
+          const tenantCandidates = [
+            data.tenant_id,
+            data.user.tenant_id,
+            data.tenant?.id,
+            Array.isArray(data.tenants) && data.tenants.length === 1 ? data.tenants[0]?.id : undefined,
+          ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+
+          if (tenantCandidates.length > 0) {
+            setTenantIdOnce(tenantCandidates[0]);
+          }
         } else {
           setMe(null);
           setAuthed(Boolean(token));
         }
-      })
-      .catch(() => {
+      } catch {
         setMe(null);
         setAuthed(Boolean(token));
-      })
-      .finally(() => setLoadingMe(false));
+      } finally {
+        setLoadingMe(false);
+      }
+    };
+
+    void loadMe();
   }, [mounted, pathname]);
 
   const handleLogout = useCallback(() => {

@@ -10,11 +10,22 @@ import { useState } from "react";
 
 // Unified error message extractor
 function getErrMsg(err: unknown): string {
-  const e = err as { response?: { data?: unknown }; message?: string };
-  const d = e?.response?.data;
-  if (typeof d === "string") return d;
-  const detail = (d as { detail?: string })?.detail;
-  return detail ?? e?.message ?? "Request failed";
+  if (!err) return "Request failed";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || "Request failed";
+
+  if (typeof err === "object") {
+    const maybe = err as {
+      response?: { data?: { detail?: string } | string };
+      message?: string;
+    };
+    const data = maybe.response?.data;
+    const detail = typeof data === "string" ? data : data?.detail;
+    if (detail) return detail;
+    if (maybe.message) return maybe.message;
+  }
+
+  return "Request failed";
 }
 
 interface ResetCompleteClientProps {

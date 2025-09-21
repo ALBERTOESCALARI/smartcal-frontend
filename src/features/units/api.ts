@@ -28,16 +28,32 @@ export async function createUnit(tenantId: string, payload: { name: string }) {
       }
     );
     return data;
-  } catch (err: any) {
-    const status = err?.response?.status;
-    const detail = err?.response?.data?.detail;
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: { detail?: unknown } | string };
+    };
+    const status = error?.response?.status;
+    const rawDetail = error?.response?.data;
+    const detail = typeof rawDetail === "string" ? rawDetail : rawDetail?.detail;
     if (status === 422 && detail) {
       // Surface FastAPI validation messages for easier debugging
       const msg = Array.isArray(detail)
-        ? detail.map((d: any) => `${d?.loc?.join(".")}: ${d?.msg}`).join("; ")
+        ? detail
+            .map((d) => {
+              const item = d as { loc?: Array<string | number>; msg?: string };
+              const path = item.loc?.join(".") ?? "field";
+              return `${path}: ${item.msg ?? "invalid"}`;
+            })
+            .join("; ")
         : typeof detail === "string"
         ? detail
-        : JSON.stringify(detail);
+        : (() => {
+            try {
+              return JSON.stringify(detail);
+            } catch {
+              return String(detail);
+            }
+          })();
       throw new Error(`Validation failed (422): ${msg}`);
     }
     throw err;
@@ -52,8 +68,8 @@ export async function deleteUnit(id: string) {
   try {
     await api.delete(`/units/${id}`, { params: baseParams });
     return id;
-  } catch (err: any) {
-    const status = err?.response?.status;
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
     if (status !== 405 && status !== 404) throw err;
   }
 
@@ -61,8 +77,8 @@ export async function deleteUnit(id: string) {
   try {
     await api.post(`/units/${id}/delete`, null, { params: baseParams });
     return id;
-  } catch (err: any) {
-    const status = err?.response?.status;
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
     if (status !== 405 && status !== 404) throw err;
   }
 

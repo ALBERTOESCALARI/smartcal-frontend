@@ -1,11 +1,26 @@
-import axios from "axios";
+import axios, { type AxiosError } from "axios";
 // Lightweight forbidden notice without external deps
+type SmartCalToastPayload = {
+  title?: string;
+  description?: string;
+  variant?: string;
+};
+
+type SmartCalWindow = Window & {
+  toast?: (payload: SmartCalToastPayload) => void;
+  __smartcal_auth_interceptor_added?: boolean;
+};
+
+function getSmartCalWindow(): SmartCalWindow | null {
+  return typeof window !== "undefined" ? (window as SmartCalWindow) : null;
+}
+
 function notifyForbidden(message: string) {
   try {
     // If a global toast function exists (from your UI), use it
-    const anyWin = window as any;
-    if (anyWin?.toast && typeof anyWin.toast === "function") {
-      anyWin.toast({ title: "Insufficient permissions", description: message, variant: "destructive" });
+    const smartWindow = getSmartCalWindow();
+    if (smartWindow?.toast && typeof smartWindow.toast === "function") {
+      smartWindow.toast({ title: "Insufficient permissions", description: message, variant: "destructive" });
       return;
     }
   } catch {}
@@ -47,17 +62,16 @@ api.interceptors.request.use((config) => {
 });
 
 // --- Auto-logout on invalid credentials / expired token ---
-if (
-  typeof window !== "undefined" &&
-  !(window as any).__smartcal_auth_interceptor_added
-) {
-  (window as any).__smartcal_auth_interceptor_added = true;
+const smartWindow = getSmartCalWindow();
+
+if (smartWindow && !smartWindow.__smartcal_auth_interceptor_added) {
+  smartWindow.__smartcal_auth_interceptor_added = true;
 
   api.interceptors.response.use(
     (res) => res,
-    (error) => {
-      const status = error?.response?.status;
-      const data = error?.response?.data;
+    (error: AxiosError<{ detail?: string } | string>) => {
+      const status = error.response?.status;
+      const data = error.response?.data;
       const detail = (typeof data === "string" ? data : data?.detail) || "";
 
       const isAuthExpired =
