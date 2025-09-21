@@ -53,8 +53,15 @@ export async function login(email: string, password: string) {
   form.append("username", email);   // FastAPI expects "username"
   form.append("password", password);
 
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-  const { data } = await axios.post(`${base}/auth/token`, form, {
+  const envBase =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "";
+  const base = envBase.replace(/\/+$/, "");
+  const tokenUrl = base ? `${base}/auth/token` : "/auth/token";
+
+  const { data } = await axios.post(tokenUrl, form, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
 
@@ -70,7 +77,8 @@ export async function login(email: string, password: string) {
 
   if (!sessionUser) {
     try {
-      const { data: meData } = await axios.get(`${base}/auth/me`, {
+      const meUrl = base ? `${base}/auth/me` : "/auth/me";
+      const { data: meData } = await axios.get(meUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
       sessionUser = buildSessionUser(meData);
