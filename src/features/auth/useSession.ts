@@ -11,10 +11,16 @@ export interface SessionUser {
 }
 
 async function fetchMe(): Promise<SessionUser | null> {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || ""}/auth/me`,
-    { credentials: "include" }
-  );
+  if (typeof window === "undefined") return null;
+
+  const token = localStorage.getItem("token");
+  if (!token) return null;
+
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
   if (!res.ok) return null;
   const data = await res.json();
   if (!data?.user) return null;
