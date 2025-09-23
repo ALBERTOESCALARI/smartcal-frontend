@@ -161,8 +161,19 @@ export function Calendar({
 
       {/* Weekday header */}
       <div className="grid grid-cols-7 text-xs text-muted-foreground font-semibold">
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="py-1 text-center select-none">{w}</div>
+        {WEEKDAYS.map((w, idx) => {
+          const isSunday = idx === 0;
+          const isSaturday = idx === 6;
+          const weekendBg = isSunday ? "#dbeafe" : isSaturday ? "#f4f4f5" : undefined;
+          return (
+            <div
+              key={w}
+              className="py-1 text-center select-none rounded-sm"
+              style={weekendBg ? { backgroundColor: weekendBg } : undefined}
+            >
+              {w}
+            </div>
+          );
         ))}
       </div>
 
@@ -170,9 +181,19 @@ export function Calendar({
       <div className="grid grid-cols-7 gap-2">
         {cells.map((cell, idx) => {
           const date = cell.date;
+          const columnIndex = idx % 7;
+          const isSunday = columnIndex === 0;
+          const isSaturday = columnIndex === 6;
+          const weekendBg = isSunday ? "#dbeafe" : isSaturday ? "#f4f4f5" : undefined;
+
           if (!date) {
             return (
-              <div key={idx} className="h-24 rounded-md border bg-muted/30" aria-hidden />
+              <div
+                key={idx}
+                className="h-24 rounded-md border"
+                style={weekendBg ? { backgroundColor: weekendBg } : undefined}
+                aria-hidden
+              />
             );
           }
           const key = ymd(date);
@@ -200,6 +221,11 @@ export function Calendar({
                 isSelected ? "bg-accent text-accent-foreground border-ring ring-2 ring-ring" : "bg-background",
                 isToday && !isSelected ? "ring-2 ring-primary" : "",
               ].join(" ")}
+              style={
+                !isSelected && weekendBg
+                  ? { backgroundColor: weekendBg }
+                  : undefined
+              }
             >
               <div className="flex items-center justify-between">
                 <div className={"text-sm " + (isSelected ? "font-bold" : isToday ? "font-semibold" : "font-medium")}>
