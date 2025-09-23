@@ -22,6 +22,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import * as React from "react";
 
+const PROTECTED_EMAIL = "albertoescalari2@yahoo.com";
+
+function isProtectedEmail(email?: string | null) {
+  return typeof email === "string" && email.toLowerCase() === PROTECTED_EMAIL;
+}
+
 // Unified error extractor (hoisted so it's available everywhere)
 function getErrMsg(err: unknown): string {
   if (!err) return "Request failed";
@@ -532,6 +538,11 @@ const filteredUsers = React.useMemo(() => {
   }
 
   function handleDelete(id: string) {
+    const target = users?.find((u) => u.id === id);
+    if (target && isProtectedEmail(target.email)) {
+      alert("This account cannot be deleted.");
+      return;
+    }
     if (!confirm("Delete this user?")) return;
     deleteMut.mutate(id);
   }
@@ -923,6 +934,7 @@ const filteredUsers = React.useMemo(() => {
               <tbody>
                 {filteredUsers.map((u) => {
                   const pending = updateMut.isPending && updateMut.variables?.id === u.id;
+                  const protectedUser = isProtectedEmail(u.email);
                   return (
                     <tr key={u.id}>
                       <td style={td}>
@@ -987,9 +999,17 @@ const filteredUsers = React.useMemo(() => {
                         <button onClick={() => openPwModal(u)} style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }} disabled={!tenantId}>
                           Change password
                         </button>
-                        <button onClick={() => handleDelete(u.id)} style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }} disabled={deleteMut.isPending || !tenantId}>
-                          {deleteMut.isPending ? "Deleting…" : "Delete"}
-                        </button>
+                        {!protectedUser ? (
+                          <button
+                            onClick={() => handleDelete(u.id)}
+                            style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }}
+                            disabled={deleteMut.isPending || !tenantId}
+                          >
+                            {deleteMut.isPending ? "Deleting…" : "Delete"}
+                          </button>
+                        ) : (
+                          <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>Deletion locked</span>
+                        )}
                         {Boolean(u.is_locked) && (
                           <button
                             onClick={() => unlockMut.mutate({ id: u.id })}
