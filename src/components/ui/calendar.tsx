@@ -174,7 +174,7 @@ export function Calendar({
               {w}
             </div>
           );
-        ))}
+        })}
       </div>
 
       {/* Month grid */}
