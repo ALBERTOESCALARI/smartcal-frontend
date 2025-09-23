@@ -268,10 +268,10 @@ export function Calendar({
       </div>
 
       {/* Print styles */}
-      <style jsx global>{`
+      <style>{`
         @media print {
           [data-printable="true"] button { display: none !important; }
-          [data-printable="true"] .print\:hidden { display: none !important; }
+          [data-printable="true"] .print\\:hidden { display: none !important; }
           [data-printable="true"] .border { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       `}</style>
