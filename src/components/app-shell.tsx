@@ -17,6 +17,7 @@ const NAV: { href: string; label: string }[] = [
   { href: "/shifts", label: "Calendar" },
   { href: "/requests/pto", label: "PTO Requests" },
   { href: "/requests/swaps", label: "Shift Swaps" },
+  { href: "/hours", label: "Hours" },
   { href: "/units", label: "Units" },
   { href: "/users", label: "Users" },
 ];
