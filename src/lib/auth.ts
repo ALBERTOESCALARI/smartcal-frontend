@@ -1,6 +1,13 @@
 import axios from "axios";
 
+
 export type SessionUser = { id: string; email: string; role?: "admin" | "member" | "scheduler" };
+
+function normalizeRole(r?: string): SessionUser["role"] {
+  if (!r) return undefined;
+  const v = r.toLowerCase();
+  return v === "admin" || v === "member" || v === "scheduler" ? (v as SessionUser["role"]) : undefined;
+}
 
 function saveSessionUser(u: SessionUser) {
   try {
@@ -34,15 +41,15 @@ function buildSessionUser(data: unknown): SessionUser | null {
 
   const fromUser = maybe.user;
   if (fromUser?.id && fromUser?.email) {
-    return { id: fromUser.id, email: fromUser.email, role: fromUser.role ?? maybe.role };
+    return { id: fromUser.id, email: fromUser.email, role: normalizeRole(fromUser.role ?? maybe.role) };
   }
 
   if (maybe.id && maybe.email) {
-    return { id: maybe.id, email: maybe.email, role: maybe.role };
+    return { id: maybe.id, email: maybe.email, role: normalizeRole(maybe.role) };
   }
 
   if (maybe.user_id && maybe.email) {
-    return { id: maybe.user_id, email: maybe.email, role: maybe.role };
+    return { id: maybe.user_id, email: maybe.email, role: normalizeRole(maybe.role) };
   }
 
   return null;
