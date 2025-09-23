@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export type SessionUser = { id: string; email: string; role?: string };
+export type SessionUser = { id: string; email: string; role?: "admin" | "member" | "scheduler" };
 
 function saveSessionUser(u: SessionUser) {
   try {
