@@ -161,21 +161,23 @@ export function Calendar({
 
       {/* Weekday header */}
       <div className="grid grid-cols-7 text-xs text-muted-foreground font-semibold">
-        {WEEKDAYS.map((w, idx) => (
-          <div
-            key={w}
-            className="py-1 text-center select-none rounded-sm"
-            style={
-              idx === 0
-                ? { backgroundColor: "#dbeafe" }
-                : idx === 6
-                ? { backgroundColor: "#f4f4f5" }
-                : undefined
-            }
-          >
-            {w}
-          </div>
-        ))}
+        {WEEKDAYS.map((w, idx) => {
+          const headerStyle: React.CSSProperties | undefined =
+            idx === 0
+              ? { backgroundColor: "#dbeafe" }
+              : idx === 6
+              ? { backgroundColor: "#f4f4f5" }
+              : undefined;
+          return (
+            <div
+              key={`${w}-${idx}`}
+              className="py-1 text-center select-none rounded-sm"
+              style={headerStyle}
+            >
+              {w}
+            </div>
+          );
+        })}
       </div>
 
       {/* Month grid */}
@@ -205,7 +207,7 @@ export function Calendar({
           // Up to three color dots for quick visibility
           const previewDots = dayShifts.slice(0, 3).map((s, i) => (
             <span
-              key={s.id || i}
+              key={`${key}-dot-${s.id ?? i}`}
               className="inline-block w-2 h-2 rounded-full"
               style={{ background: s.color || "#2563eb" }}
               title={(s.unitName || "") + (s.userName ? ` – ${s.userName}` : "")}
@@ -237,14 +239,14 @@ export function Calendar({
                 </div>
               </div>
               <div className="mt-1 space-y-1 overflow-hidden">
-                {dayShifts.slice(0, 3).map((s) => (
+                {dayShifts.slice(0, 3).map((s, i) => (
                   <div
-                    key={s.id}
+                    key={`${key}-item-${s.id ?? i}`}
                     className="truncate text-xs"
                     title={
                       [s.unitName, s.userName, s.start && s.end ? `${timeHM(s.start)}–${timeHM(s.end)}` : null]
                         .filter(Boolean)
-                        .join(" · ")
+                        .join(" · ") as string
                     }
                   >
                     <span
