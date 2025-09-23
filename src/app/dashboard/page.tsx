@@ -48,23 +48,29 @@ export default function DashboardPage() {
     } catch {}
   }, []);
 
-  const unitsQuery = useQuery<Unit[]>(
-    ["dashboard", "units", tenantId],
-    () => fetchUnits(tenantId),
-    { enabled: Boolean(tenantId), staleTime: 5 * 60 * 1000 }
-  );
+  const unitsQuery = useQuery<Unit[]>({
+    queryKey: ["dashboard", "units", tenantId],
+    queryFn: () => fetchUnits(tenantId),
+    enabled: Boolean(tenantId),
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const shiftsQuery = useQuery<Shift[]>(
-    ["dashboard", "shifts", tenantId],
-    () => fetchShifts(tenantId),
-    { enabled: Boolean(tenantId), refetchInterval: 5 * 60 * 1000 }
-  );
+  const shiftsQuery = useQuery<Shift[]>({
+    queryKey: ["dashboard", "shifts", tenantId],
+    queryFn: () => fetchShifts(tenantId),
+    enabled: Boolean(tenantId),
+    refetchInterval: 5 * 60 * 1000,
+  });
 
   const unitName = useMemo(() => {
     const map = new Map<string, string>();
-    (unitsQuery.data || []).forEach((u) => {
-      if (u.id) map.set(u.id, u.name ?? u.id);
-    });
+    if (Array.isArray(unitsQuery.data)) {
+      for (const unit of unitsQuery.data) {
+        if (unit?.id) {
+          map.set(unit.id, unit.name ?? unit.id);
+        }
+      }
+    }
     return (id: string | null | undefined) => {
       if (!id) return "Unassigned unit";
       return map.get(id) ?? id;
@@ -87,7 +93,7 @@ export default function DashboardPage() {
 
   return (
     <RequireAuth>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6">
         <Card className="p-4">Welcome! This will show quick stats.</Card>
 
         <Card className="p-4 space-y-4">
@@ -148,7 +154,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card className="p-4 md:col-span-2">Recent requests (PTO & swaps).</Card>
+        <Card className="p-4">Recent requests (PTO & swaps).</Card>
       </div>
     </RequireAuth>
   );
