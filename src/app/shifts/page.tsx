@@ -12,7 +12,7 @@ import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
 import { loadSessionUser } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 // ----- Types & helpers -----
 // Broader shape to capture different backend variants for credentials
 // (we won't rely on all fields existing; they're optional)
@@ -308,6 +308,12 @@ export default function ShiftsPage() {
     return arr;
   }, [usersQ.data]);
 
+  const handlePrint = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.print();
+    }
+  }, []);
+
 const meQ = useQuery({
   queryKey: ["me"],
   queryFn: async () => loadSessionUser() ?? fetchMe(),
@@ -380,14 +386,29 @@ const meQ = useQuery({
   }, [tenantId, start]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createShift(tenantId, {
+    mutationFn: () => {
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      const nowMs = Date.now();
+
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        throw new Error("Please select valid start and end times.");
+      }
+      if (startDate.getTime() <= nowMs) {
+        throw new Error("Start time must be in the future.");
+      }
+      if (endDate.getTime() <= startDate.getTime()) {
+        throw new Error("End time must be after start time.");
+      }
+
+      return createShift(tenantId, {
         unit_id: unitId,
         user_id: userId || null,
-        start_time: new Date(start).toISOString(),
-        end_time: new Date(end).toISOString(),
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
         notes: notes || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
       toast({ title: "Shift created" });
@@ -403,7 +424,19 @@ const meQ = useQuery({
     mutationFn: async (items: Array<{ unit_id: string; user_id: string | null; start_time: string; end_time: string; notes?: string }>) => {
       const tid = tenantId?.trim();
       if (!tid) throw new Error("No tenant selected");
+      const nowMs = Date.now();
       for (const p of items) {
+        const startTime = new Date(p.start_time);
+        const endTime = new Date(p.end_time);
+        if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {
+          throw new Error("Please select valid start and end times for every shift.");
+        }
+        if (startTime.getTime() <= nowMs) {
+          throw new Error("All shifts must start in the future.");
+        }
+        if (endTime.getTime() <= startTime.getTime()) {
+          throw new Error("Shift end time must be after the start time.");
+        }
         // sequential to keep toasts/ordering predictable
         // reuse existing API helper
         // eslint-disable-next-line no-await-in-loop
@@ -727,11 +760,16 @@ const identity = identityParts.join(" • ");
     return byDate.filter((s) => s.user_id === currentUserId);
   }, [shiftsQ.data, selectedDate, isAdminOrSched, viewFilter, currentUserId]);
 
-  const startOk = Boolean(start) && !Number.isNaN(new Date(start).getTime());
-  const endOk = Boolean(end) && !Number.isNaN(new Date(end).getTime());
-  const canCreate =
-    Boolean(tenantId && unitId && startOk && endOk) &&
-    new Date(end).getTime() > new Date(start).getTime();
+  const startDateValue = start ? new Date(start) : null;
+  const endDateValue = end ? new Date(end) : null;
+  const startOk = !!(startDateValue && !Number.isNaN(startDateValue.getTime()));
+  const endOk = !!(endDateValue && !Number.isNaN(endDateValue.getTime()));
+  const nowMs = Date.now();
+  const startInFuture = startOk && startDateValue ? startDateValue.getTime() > nowMs : false;
+  const endAfterStart = startOk && endOk && startDateValue && endDateValue
+    ? endDateValue.getTime() > startDateValue.getTime()
+    : false;
+  const canCreate = Boolean(tenantId && unitId && startOk && endOk && startInFuture && endAfterStart);
 
   // Render body of the View Details panel without nested ternaries (fixes linter warning)
   function renderViewPanelBody() {
@@ -813,7 +851,7 @@ const identity = identityParts.join(" • ");
             <div className="text-muted-foreground">
               Filtered by date: {selectedDate.toLocaleDateString()}
             </div>
-            <Button variant="outline" size="sm" onClick={() => setSelectedDate(null)}>
+            <Button variant="outline" size="sm" onClick={() => setSelectedDate(null)} className="print:hidden">
               Clear filter
             </Button>
           </div>
@@ -825,7 +863,7 @@ const identity = identityParts.join(" • ");
                 {isAdminOrSched && (
                   <input
                     type="checkbox"
-                    className="mt-1"
+                    className="mt-1 print:hidden"
                     checked={isSelected(s.id)}
                     onChange={() => toggleSelect(s.id)}
                     aria-label={`Select shift ${s.id}`}
@@ -852,81 +890,83 @@ const identity = identityParts.join(" • ");
                   {s.notes && <div className="text-sm">{s.notes}</div>}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="opacity-60">{s.id.slice(0, 8)}…</code>
+              <div className="flex flex-col items-end gap-2 text-right md:flex-row md:items-center md:gap-2 md:text-left">
+                <code className="opacity-60 print:opacity-90">{s.id.slice(0, 8)}…</code>
 
-                {isAdminOrSched ? (
-                  <>
-                    {/* Admin/Scheduler: full controls */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEditingId(s.id);
-                        setEUnitId(s.unit_id || "");
-                        setEUserId(s.user_id || "");
-                        setEStart(toDatetimeLocalInput(new Date(s.start_time)));
-                        setEEnd(toDatetimeLocalInput(new Date(s.end_time)));
-                        setEStatus(s.status || "");
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setViewId(s.id)}>
-                      View
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={delMut.isPending && deletingId === s.id}
-                      onClick={() => {
-                        if (!confirm("Delete this shift?")) return;
-                        setDeletingId(s.id);
-                        delMut.mutate({ id: s.id }, { onSettled: () => setDeletingId("") });
-                        setSelectedShiftIds(prev => { const n = new Set(prev); n.delete(s.id); return n; });
-                      }}
-                    >
-                      {delMut.isPending && deletingId === s.id ? "Deleting…" : "Delete"}
-                    </Button>
-
-                    {/* Quick self-assign/release for admins too */}
-                    {!s.user_id && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={takeMut.isPending}
-                        onClick={() => takeMut.mutate(s.id)}
-                      >
-                        {takeMut.isPending ? "Taking…" : "Sign up"}
-                      </Button>
-                    )}
-                    {s.user_id === currentUserId && (
+                <div className="flex items-center gap-2 print:hidden">
+                  {isAdminOrSched ? (
+                    <>
+                      {/* Admin/Scheduler: full controls */}
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={releaseMut.isPending}
-                        onClick={() => releaseMut.mutate(s.id)}
+                        onClick={() => {
+                          setEditingId(s.id);
+                          setEUnitId(s.unit_id || "");
+                          setEUserId(s.user_id || "");
+                          setEStart(toDatetimeLocalInput(new Date(s.start_time)));
+                          setEEnd(toDatetimeLocalInput(new Date(s.end_time)));
+                          setEStatus(s.status || "");
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
                       >
-                        {releaseMut.isPending ? "Releasing…" : "Release"}
+                        Edit
                       </Button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {/* Member: can only sign up for unassigned shifts */}
-                    {!s.user_id && (
+                      <Button variant="outline" size="sm" onClick={() => setViewId(s.id)}>
+                        View
+                      </Button>
                       <Button
-                        variant="default"
+                        variant="destructive"
                         size="sm"
-                        disabled={takeMut.isPending}
-                        onClick={() => takeMut.mutate(s.id)}
+                        disabled={delMut.isPending && deletingId === s.id}
+                        onClick={() => {
+                          if (!confirm("Delete this shift?")) return;
+                          setDeletingId(s.id);
+                          delMut.mutate({ id: s.id }, { onSettled: () => setDeletingId("") });
+                          setSelectedShiftIds(prev => { const n = new Set(prev); n.delete(s.id); return n; });
+                        }}
                       >
-                        {takeMut.isPending ? "Taking…" : "Sign up"}
+                        {delMut.isPending && deletingId === s.id ? "Deleting…" : "Delete"}
                       </Button>
-                    )}
-                  </>
-                )}
+
+                      {/* Quick self-assign/release for admins too */}
+                      {!s.user_id && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={takeMut.isPending}
+                          onClick={() => takeMut.mutate(s.id)}
+                        >
+                          {takeMut.isPending ? "Taking…" : "Sign up"}
+                        </Button>
+                      )}
+                      {s.user_id === currentUserId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={releaseMut.isPending}
+                          onClick={() => releaseMut.mutate(s.id)}
+                        >
+                          {releaseMut.isPending ? "Releasing…" : "Release"}
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Member: can only sign up for unassigned shifts */}
+                      {!s.user_id && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={takeMut.isPending}
+                          onClick={() => takeMut.mutate(s.id)}
+                        >
+                          {takeMut.isPending ? "Taking…" : "Sign up"}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </li>
           ))}
@@ -937,11 +977,22 @@ const identity = identityParts.join(" • ");
 
   return (
     <RequireAuth>
-      <div className="mx-auto max-w-6xl px-4 space-y-6">
-        <h1 className="text-xl font-semibold">Shifts</h1>
+      <div className="mx-auto max-w-6xl px-4 space-y-6 print:space-y-4 print:bg-white print:text-black">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold print:text-black">Shifts</h1>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handlePrint}
+            className="print:hidden"
+          >
+            Print shifts
+          </Button>
+        </div>
 
         {/* Tenant Selector */}
-        <Card className="p-4 space-y-2 bg-muted/50">
+        <Card className="p-4 space-y-2 bg-muted/50 print:hidden">
           <div className="font-medium">Tenant</div>
           <form
             onSubmit={(e) => {
@@ -971,7 +1022,7 @@ const identity = identityParts.join(" • ");
         </Card>
 
         {/* Calendar */}
-<Card className="p-4 space-y-3 bg-muted/30">
+        <Card className="p-4 space-y-3 bg-muted/30 print:hidden">
   {/* Legend */}
   <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground print:text-black">
     <span className="inline-flex items-center gap-1.5">
@@ -1101,7 +1152,7 @@ const identity = identityParts.join(" • ");
   </div>
 </Card>
         {/* Create */}
-        <Card className="p-4 space-y-3 bg-muted/50">
+        <Card className="p-4 space-y-3 bg-muted/50 print:hidden">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
             <div className="md:col-span-2">
               <Label>Unit</Label>
@@ -1248,6 +1299,20 @@ const identity = identityParts.join(" • ");
                 const units = forAllUnits ? (unitsQ.data || []).map(u => u.id) : [unitId];
                 const startDate = new Date(start);
                 const endDate = new Date(end);
+                const nowMs = Date.now();
+
+                if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+                  toast({ title: "Invalid date", description: "Please select valid start and end times." });
+                  return;
+                }
+                if (startDate.getTime() <= nowMs) {
+                  toast({ title: "Start time is in the past", description: "Please select a future date and time." });
+                  return;
+                }
+                if (endDate.getTime() <= startDate.getTime()) {
+                  toast({ title: "End time before start", description: "End time must be after the start time." });
+                  return;
+                }
                 const items: Array<{ unit_id: string; user_id: string | null; start_time: string; end_time: string; notes?: string }> = [];
                 if (multiDayMode && selectedDates.length > 0) {
                   // Multi-day mode: ignore repeatDays; create for each selected day (and each unit if forAllUnits)
@@ -1291,6 +1356,14 @@ const identity = identityParts.join(" • ");
                 }
 
                 if (items.length > 0) {
+                  const hasPast = items.some((item) => {
+                    const ts = new Date(item.start_time).getTime();
+                    return Number.isNaN(ts) || ts <= nowMs;
+                  });
+                  if (hasPast) {
+                    toast({ title: "Shift time is in the past", description: "Please adjust your selection so all shifts start in the future." });
+                    return;
+                  }
                   bulkCreateMut.mutate(items);
                 } else {
                   createMut.mutate();
@@ -1316,7 +1389,9 @@ const identity = identityParts.join(" • ");
               <>
                 {!startOk || !endOk ? (
                   <div className="text-xs text-red-600 mt-2">Invalid date/time format.</div>
-                ) : (new Date(end).getTime() <= new Date(start).getTime()) ? (
+                ) : !startInFuture ? (
+                  <div className="text-xs text-red-600 mt-2">Start time must be in the future.</div>
+                ) : !endAfterStart ? (
                   <div className="text-xs text-red-600 mt-2">End time must be after start time.</div>
                 ) : null}
               </>
@@ -1329,7 +1404,7 @@ const identity = identityParts.join(" • ");
 
         {/* Edit (appears when a row is selected) */}
         {editingId && (
-          <Card className="p-4 space-y-3 bg-muted/50">
+          <Card className="p-4 space-y-3 bg-muted/50 print:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="font-medium">Edit Shift</div>
               <Button
@@ -1422,7 +1497,7 @@ const identity = identityParts.join(" • ");
 
         {/* View details (tiny helper panel) */}
         {viewId && (
-          <Card className="p-4 space-y-2 bg-muted/30">
+          <Card className="p-4 space-y-2 bg-muted/30 print:hidden">
             <div className="flex items-center justify-between">
               <div className="font-medium">Shift Details</div>
               <Button
@@ -1439,68 +1514,68 @@ const identity = identityParts.join(" • ");
         )}
 
         {/* List */}
-        <Card className="p-4 bg-muted/30 space-y-3">
-          <div className="flex items-center justify-between">
-  <div className="flex items-center gap-3">
-    <div className="font-medium">Shifts</div>
+        <Card className="p-4 bg-muted/30 space-y-3 print:bg-white print:text-black print:shadow-none">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="font-medium">Shifts</div>
 
-    {isAdminOrSched && (
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={filteredShifts.length > 0 && selectedShiftIds.size === filteredShifts.length}
-          onChange={(e) => {
-            if (e.target.checked) selectAllFiltered(); else clearSelection();
-          }}
-        />
-        Select all on page
-      </label>
-    )}
+              {isAdminOrSched && (
+                <label className="flex items-center gap-2 text-sm print:hidden">
+                  <input
+                    type="checkbox"
+                    checked={filteredShifts.length > 0 && selectedShiftIds.size === filteredShifts.length}
+                    onChange={(e) => {
+                      if (e.target.checked) selectAllFiltered(); else clearSelection();
+                    }}
+                  />
+                  Select all on page
+                </label>
+              )}
 
-    {isAdminOrSched && selectedShiftIds.size > 0 && (
-      <span className="text-xs text-muted-foreground">{selectedShiftIds.size} selected</span>
-    )}
-  </div>
+              {isAdminOrSched && selectedShiftIds.size > 0 && (
+                <span className="text-xs text-muted-foreground print:hidden">{selectedShiftIds.size} selected</span>
+              )}
+            </div>
 
-  <div className="flex items-center gap-2">
-    {!isAdminOrSched ? (
-      <div className="inline-flex rounded-md border overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setViewFilter('mine')}
-          className={`px-3 py-1 text-sm ${viewFilter === 'mine' ? 'bg-background' : 'bg-muted'}`}
-          title="Only shifts you are assigned to"
-        >
-          My shifts
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewFilter('all')}
-          className={`px-3 py-1 text-sm ${viewFilter === 'all' ? 'bg-background' : 'bg-muted'}`}
-          title="All shifts in this tenant"
-        >
-          All shifts
-        </button>
-      </div>
-    ) : (
-      <>
-        {selectedShiftIds.size > 0 && (
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={bulkDelMut.isPending}
-            onClick={() => {
-              if (!confirm(`Delete ${selectedShiftIds.size} selected shift(s)?`)) return;
-              bulkDelMut.mutate(Array.from(selectedShiftIds));
-             }}
-          >
-            {bulkDelMut.isPending ? "Deleting…" : "Delete selected"}
-          </Button>
-        )}
-      </>
-    )}
-  </div>
-</div>
+            <div className="flex items-center gap-2 print:hidden">
+              {!isAdminOrSched ? (
+                <div className="inline-flex rounded-md border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setViewFilter('mine')}
+                    className={`px-3 py-1 text-sm ${viewFilter === 'mine' ? 'bg-background' : 'bg-muted'}`}
+                    title="Only shifts you are assigned to"
+                  >
+                    My shifts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewFilter('all')}
+                    className={`px-3 py-1 text-sm ${viewFilter === 'all' ? 'bg-background' : 'bg-muted'}`}
+                    title="All shifts in this tenant"
+                  >
+                    All shifts
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {selectedShiftIds.size > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={bulkDelMut.isPending}
+                      onClick={() => {
+                        if (!confirm(`Delete ${selectedShiftIds.size} selected shift(s)?`)) return;
+                        bulkDelMut.mutate(Array.from(selectedShiftIds));
+                      }}
+                    >
+                      {bulkDelMut.isPending ? "Deleting…" : "Delete selected"}
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
           {renderListBody()}
         </Card>
       </div>
