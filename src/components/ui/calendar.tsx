@@ -161,22 +161,21 @@ export function Calendar({
 
       {/* Weekday header */}
       <div className="grid grid-cols-7 text-xs text-muted-foreground font-semibold">
-        {WEEKDAYS.map((w, idx) => {
-          const style = idx === 0
-            ? { backgroundColor: "#dbeafe" }
-            : idx === 6
-            ? { backgroundColor: "#f4f4f5" }
-            : undefined;
-          return (
-            <div
-              key={`${w}-${idx}`}
-              className="py-1 text-center select-none rounded-sm"
-              style={style}
-            >
-              {w}
-            </div>
-          );
-        })}
+        {WEEKDAYS.map((w, idx) => (
+          <div
+            key={`${w}-${idx}`}
+            className="py-1 text-center select-none rounded-sm"
+            style={
+              idx === 0
+                ? { backgroundColor: "#dbeafe" }
+                : idx === 6
+                ? { backgroundColor: "#f4f4f5" }
+                : undefined
+            }
+          >
+            {w}
+          </div>
+        ))}
       </div>
 
       {/* Month grid */}
