@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
 
+import { logout } from "@/lib/auth";
+
 function IdleLogout() {
   const router = useRouter();
   const timeoutRef = useRef<number | null>(null);
@@ -14,7 +16,7 @@ function IdleLogout() {
       if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
       timeoutRef.current = window.setTimeout(() => {
         try {
-          localStorage.clear();
+          logout();
           sessionStorage.clear();
         } catch {}
         router.replace("/login?reason=expired");

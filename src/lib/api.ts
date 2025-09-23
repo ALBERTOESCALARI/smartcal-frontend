@@ -210,7 +210,6 @@ export async function loginAndFetchMe(email: string, password: string, tenantId?
 
 export function logout() {
   clearToken();
-  clearActiveTenantId();
   clearSessionUser();
 }
 
