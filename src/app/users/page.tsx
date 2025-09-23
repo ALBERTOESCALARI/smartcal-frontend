@@ -67,6 +67,13 @@ type BulkImportResult = {
   results?: Array<{ email?: string; status?: string; error?: string }>;
 };
 
+// Minimal shape returned by createUser endpoint
+// (used only to read temp_password after creation)
+export type CreateUserResponse = {
+  id?: string;
+  temp_password?: string | null;
+};
+
 async function postBulkUsers(tenantId: string, payload: unknown): Promise<BulkImportResult | string> {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
   if (!tenantId) throw new Error("Missing tenant id");
