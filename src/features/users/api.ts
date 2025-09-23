@@ -171,6 +171,9 @@ export async function changeUserPassword(
   id: string,
   body: { current_password: string; new_password: string }
 ): Promise<boolean> {
+  if (!body?.new_password || body.new_password.length < 8) {
+    throw new Error("Password must be at least 8 characters long.");
+  }
   try {
     await api.put(`/users/${id}/password`, body, { params: { tenant_id: tenantId } });
     return true;
@@ -198,6 +201,9 @@ export async function completePasswordReset(
   token: string,
   new_password: string
 ): Promise<void> {
+  if (!new_password || new_password.length < 8) {
+    throw new Error("Password must be at least 8 characters long.");
+  }
   try {
     await api.post("/auth/password/complete", { token, new_password });
   } catch (err) {

@@ -40,10 +40,17 @@ export default function ResetCompleteClient({ token }: ResetCompleteClientProps)
   const [busy, setBusy] = useState(false);
 
   const handleSave = async () => {
+    if (!token) {
+      setMsg("Missing token");
+      return;
+    }
+    if (pw.length < 8) {
+      setMsg("Password must be at least 8 characters long.");
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
-      if (!token) throw new Error("Missing token");
       await completePasswordReset(token, pw);
       setMsg("Password set! Redirecting to login…");
       setTimeout(() => router.push("/login"), 1200);

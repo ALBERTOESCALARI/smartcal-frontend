@@ -543,6 +543,17 @@ function applyTemplate(name: string, baseDate?: Date) {
     if (eEnd) payload.end_time = new Date(eEnd).toISOString();
     if (eStatus) payload.status = eStatus;
 
+    const nowMs = Date.now();
+    if (payload.start_time) {
+      const startMs = new Date(payload.start_time).getTime();
+      if (Number.isNaN(startMs)) throw new Error("Invalid start time");
+      if (startMs <= nowMs) throw new Error("Start must be in the future");
+    }
+    if (payload.end_time) {
+      const endMs = new Date(payload.end_time).getTime();
+      if (Number.isNaN(endMs)) throw new Error("Invalid end time");
+      if (endMs <= nowMs) throw new Error("End must be in the future");
+    }
     if (payload.start_time && payload.end_time) {
       if (new Date(payload.end_time).getTime() <= new Date(payload.start_time).getTime()) {
         throw new Error("End must be after start");

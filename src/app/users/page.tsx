@@ -471,11 +471,15 @@ const filteredUsers = React.useMemo(() => {
   });
 
   const changePwMut = useMutation({
-    mutationFn: (args: { id: string; current_password: string; new_password: string }) =>
-      changeUserPassword(tenantId, args.id, {
+    mutationFn: (args: { id: string; current_password: string; new_password: string }) => {
+      if (!args.new_password || args.new_password.length < 8) {
+        throw new Error("Password must be at least 8 characters long.");
+      }
+      return changeUserPassword(tenantId, args.id, {
         current_password: args.current_password,
         new_password: args.new_password,
-      }),
+      });
+    },
     onSuccess: () => {
       setPwMsg("Password updated");
       setTimeout(() => {
@@ -1125,6 +1129,10 @@ const filteredUsers = React.useMemo(() => {
                       if (!tenantId) return alert("Set a tenant first");
                       if (!pwCurrent || !pwNew)
                         return alert("Enter both current and new password");
+                      if (pwNew.length < 8) {
+                        setPwMsg("Password must be at least 8 characters long.");
+                        return;
+                      }
                       changePwMut.mutate({
                         id: pwUser.id,
                         current_password: pwCurrent,
