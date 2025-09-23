@@ -162,17 +162,16 @@ export function Calendar({
       {/* Weekday header */}
       <div className="grid grid-cols-7 text-xs text-muted-foreground font-semibold">
         {WEEKDAYS.map((w, idx) => {
-          const headerStyle: React.CSSProperties | undefined =
-            idx === 0
-              ? { backgroundColor: "#dbeafe" }
-              : idx === 6
-              ? { backgroundColor: "#f4f4f5" }
-              : undefined;
+          const style = idx === 0
+            ? { backgroundColor: "#dbeafe" }
+            : idx === 6
+            ? { backgroundColor: "#f4f4f5" }
+            : undefined;
           return (
             <div
               key={`${w}-${idx}`}
               className="py-1 text-center select-none rounded-sm"
-              style={headerStyle}
+              style={style}
             >
               {w}
             </div>
