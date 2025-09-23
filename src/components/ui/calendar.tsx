@@ -186,7 +186,14 @@ export function Calendar({
           const columnIndex = idx % 7;
           const isSunday = columnIndex === 0;
           const isSaturday = columnIndex === 6;
-          const weekendBg = isSunday ? "#dbeafe" : isSaturday ? "#f4f4f5" : undefined;
+          let weekendBg: string | undefined;
+          if (isSunday) {
+            weekendBg = "#dbeafe";
+          } else if (isSaturday) {
+            weekendBg = "#f4f4f5";
+          } else {
+            weekendBg = undefined;
+          }
 
           if (!date) {
             return (
