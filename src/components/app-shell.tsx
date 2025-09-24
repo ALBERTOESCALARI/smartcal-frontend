@@ -212,23 +212,23 @@ export default function AppShell({ children }: AppShellProps) {
 
   const NavList = useMemo(
     () => (
-      <nav className="flex flex-col gap-1">
+      <nav className="flex flex-col gap-2">
         {NAV.map((n) => {
           if (n.href === "/users" && !isAdmin) return null; // hide Users for members
           const active = isActive(pathname, n.href);
           return (
-            <Link
+            <Button
               key={n.href}
-              href={n.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "rounded-xl px-3 py-2 text-sm hover:bg-muted",
-                active && "bg-muted font-medium"
-              )}
+              asChild
+              variant={active ? "default" : "outline"}
+              size="sm"
+              className={cn("justify-start w-full", active && "font-medium")}
               onClick={() => setOpen(false)}
             >
-              {n.label}
-            </Link>
+              <Link href={n.href} aria-current={active ? "page" : undefined} className="w-full text-left font-semibold">
+                {n.label}
+              </Link>
+            </Button>
           );
         })}
       </nav>
@@ -253,9 +253,9 @@ export default function AppShell({ children }: AppShellProps) {
       return (
         <div className="flex items-center gap-2">
           <Link href="/shifts">
-            <Button variant="outline" size="sm">Shifts</Button>
+            <Button variant="outline" size="sm" className="font-semibold">Shifts</Button>
           </Link>
-          <Button variant="outline" size="sm" onClick={handleLogout}>
+          <Button variant="outline" size="sm" onClick={handleLogout} className="font-semibold">
             Logout
           </Button>
         </div>
@@ -263,7 +263,7 @@ export default function AppShell({ children }: AppShellProps) {
     }
     return (
       <Link href="/login">
-        <Button variant="outline" size="sm">Login</Button>
+        <Button variant="outline" size="sm" className="font-semibold">Login</Button>
       </Link>
     );
   }, [mounted, authed, handleLogout]);
