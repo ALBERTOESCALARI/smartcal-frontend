@@ -1,5 +1,7 @@
 "use client";
 
+import SmartCalLogo from "@/assets/smartcal-logo.png";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -289,8 +291,16 @@ export default function AppShell({ children }: AppShellProps) {
               </SheetContent>
             </Sheet>
 
-            <Link href="/dashboard" className="text-lg font-semibold">
-              SmartCal
+            <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
+              <Image
+                src={SmartCalLogo}
+                alt="SmartCal Logo"
+                className="h-6 w-6"
+                height={24}
+                width={24}
+                priority
+              />
+              <span>SmartCal</span>
             </Link>
             {(loadingMe || identityText) && (
               <span className="text-sm text-green-600 ml-4">
