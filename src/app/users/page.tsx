@@ -583,40 +583,30 @@ const filteredUsers = React.useMemo(() => {
         </div>
       </div>
     ) : (
-      <div style={{ padding: 16 }}>
+      <div className="mx-auto max-w-5xl p-4 md:p-6 space-y-6">
 
         {/* Tenant selector */}
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            marginBottom: 12,
-            background: tenantId ? "#f8fafc" : "#fff7ed",
-            padding: 8,
-            border: "1px solid #e5e7eb",
-            borderRadius: 6,
-            maxWidth: 520,
-          }}
-        >
-          <label style={{ fontSize: 12 }}>Tenant ID</label>
-          <input
-            type="text"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-            placeholder="Enter tenant_id"
-            style={{ flex: 1 }}
-          />
-          <button
-            type="button"
-            onClick={() => saveTenantId(tenantId)}
-            style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6 }}
-          >
-            Save
-          </button>
+        <div className={`rounded-lg border p-3 md:p-4 max-w-xl shadow-sm ${tenantId ? 'bg-slate-50' : 'bg-amber-50'}`}> 
+          <div className="text-sm font-medium mb-2">Tenant ID</div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              placeholder="Enter tenant_id"
+              className="w-full rounded-md border px-3 py-2"
+            />
+            <button
+              type="button"
+              onClick={() => saveTenantId(tenantId)}
+              className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+            >
+              Save
+            </button>
+          </div>
         </div>
         {!tenantId && (
-          <div style={{ color: "#b45309", fontSize: 12, marginBottom: 12 }}>
+          <div className="text-amber-700 text-xs">
             No tenant selected. Enter and save a tenant ID to load users.
           </div>
         )}
@@ -693,7 +683,7 @@ const filteredUsers = React.useMemo(() => {
               credentials,
             });
           }}
-          style={{ display: "grid", gap: 8, maxWidth: 520, marginBottom: 24 }}
+          className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
         >
           <div style={{ fontWeight: 600 }}>Invite user (send email link)</div>
           <div style={{ fontSize: 12, color: "#64748b" }}>
@@ -703,7 +693,7 @@ const filteredUsers = React.useMemo(() => {
             <button
               type="submit"
               disabled={!tenantId || createInvite.isPending}
-              style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: createInvite.isPending ? 0.6 : 1 }}
+              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${createInvite.isPending ? 'opacity-60' : ''}`}
             >
               {createInvite.isPending ? "Sending…" : "Send Invite"}
             </button>
@@ -722,16 +712,7 @@ const filteredUsers = React.useMemo(() => {
         </form>
 
         {/* Invite existing users */}
-        <div
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 6,
-            padding: 12,
-            marginBottom: 24,
-            maxWidth: 720,
-            background: "#f9fafb",
-          }}
-        >
+        <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
           <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
             Send set‑password links to users that are already in this tenant.
@@ -754,7 +735,7 @@ const filteredUsers = React.useMemo(() => {
                 }
               }}
               disabled={inviteAllBusy || !tenantId}
-              style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: inviteAllBusy ? 0.6 : 1 }}
+              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteAllBusy ? 'opacity-60' : ''}`}
             >
               {inviteAllBusy ? "Inviting…" : "Invite all without password"}
             </button>
@@ -794,7 +775,7 @@ const filteredUsers = React.useMemo(() => {
                   }
                 }}
                 disabled={inviteSelectedBusy || !tenantId}
-                style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: inviteSelectedBusy ? 0.6 : 1 }}
+                className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteSelectedBusy ? 'opacity-60' : ''}`}
               >
                 {inviteSelectedBusy ? "Inviting…" : "Invite selected"}
               </button>
@@ -814,7 +795,7 @@ const filteredUsers = React.useMemo(() => {
     <button
       type="button"
       onClick={() => setShowBulk((v) => !v)}
-      style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6, fontSize: 12, marginBottom: 8 }}
+      className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
       aria-expanded={showBulk}
       aria-controls="bulk-import-panel"
     >
@@ -875,7 +856,7 @@ const filteredUsers = React.useMemo(() => {
             {(error as Error)?.message || "Failed to load users"}
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
               <thead>
                 <tr>
