@@ -114,6 +114,35 @@ export function Calendar({
     onSelect?.(t);
   }
 
+  function moveDays(base: Date, delta: number) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + delta);
+    return d;
+  }
+  function handleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, date: Date) {
+    let next: Date | null = null;
+    switch (e.key) {
+      case "ArrowLeft":  next = moveDays(date, -1); break;
+      case "ArrowRight": next = moveDays(date, 1); break;
+      case "ArrowUp":    next = moveDays(date, -7); break;
+      case "ArrowDown":  next = moveDays(date, 7); break;
+      case "Home":       next = moveDays(date, -(date.getDay())); break;
+      case "End":        next = moveDays(date, 6 - date.getDay()); break;
+      case "PageUp": {
+        const d = new Date(date); d.setMonth(d.getMonth() - 1); next = d; break;
+      }
+      case "PageDown": {
+        const d = new Date(date); d.setMonth(d.getMonth() + 1); next = d; break;
+      }
+      case "Enter":
+      case " ": onSelect?.(startOfDay(date)); return;
+    }
+    if (next) {
+      e.preventDefault();
+      onMonthChange?.(startOfMonth(next));
+    }
+  }
+
   return (
     <div className={"w-full " + (className ?? "")}
          data-printable={printable ? "true" : "false"}
@@ -142,11 +171,11 @@ export function Calendar({
               Today
             </button>
           </div>
-          <div className="text-sm text-muted-foreground select-none">
+          <div className="text-sm text-muted-foreground select-none" aria-live="polite">
             {loading ? <span>Loading…</span> : null}
           </div>
           <div className="flex items-center gap-2">
-            <div className="font-semibold">{monthLabel}</div>
+            <div id="monthLabel" className="font-semibold">{monthLabel}</div>
             {showPrintButton && (
               <button
                 className="border rounded-md px-2 py-1 text-sm hover:bg-muted"
@@ -161,45 +190,52 @@ export function Calendar({
 
       {/* Weekday header */}
       <div className="grid grid-cols-7 text-xs text-muted-foreground font-semibold">
-        {WEEKDAYS.map((w, idx) => (
-          <div
-            key={`${w}-${idx}`}
-            className="py-1 text-center select-none rounded-sm"
-            style={
-              idx === 0
-                ? { backgroundColor: "#dbeafe" }
-                : idx === 6
-                ? { backgroundColor: "#f4f4f5" }
-                : undefined
-            }
-          >
-            {w}
-          </div>
-        ))}
+        {WEEKDAYS.map((w, idx) => {
+          const ariaLabel = w === "Sun" ? "Sunday" :
+                            w === "Mon" ? "Monday" :
+                            w === "Tue" ? "Tuesday" :
+                            w === "Wed" ? "Wednesday" :
+                            w === "Thu" ? "Thursday" :
+                            w === "Fri" ? "Friday" : "Saturday";
+          const baseClasses = "py-1 text-center select-none rounded-sm";
+          const classes = idx === 0
+            ? baseClasses + " bg-blue-50 dark:bg-blue-950/30"
+            : idx === 6
+            ? baseClasses + " bg-zinc-100 dark:bg-zinc-900/40"
+            : baseClasses;
+          return (
+            <div
+              key={`${w}-${idx}`}
+              role="columnheader"
+              aria-label={ariaLabel}
+              className={classes}
+            >
+              {w}
+            </div>
+          );
+        })}
       </div>
 
       {/* Month grid */}
-      <div className="grid grid-cols-7 gap-2">
+      <div role="grid" aria-labelledby="monthLabel" aria-colcount={7} className="grid grid-cols-7 gap-2">
         {cells.map((cell, idx) => {
           const date = cell.date;
           const columnIndex = idx % 7;
           const isSunday = columnIndex === 0;
           const isSaturday = columnIndex === 6;
-          let weekendBg: string | undefined;
-          if (isSunday) {
-            weekendBg = "#dbeafe";
-          } else if (isSaturday) {
-            weekendBg = "#f4f4f5";
-          } else {
-            weekendBg = undefined;
-          }
 
           if (!date) {
             return (
               <div
                 key={idx}
-                className="h-24 rounded-md border"
-                style={weekendBg ? { backgroundColor: weekendBg } : undefined}
+                className={
+                  "h-24 rounded-md border " +
+                  (isSunday
+                    ? "bg-blue-50 dark:bg-blue-950/30"
+                    : isSaturday
+                    ? "bg-zinc-100 dark:bg-zinc-900/40"
+                    : "")
+                }
                 aria-hidden
               />
             );
@@ -219,21 +255,25 @@ export function Calendar({
             />
           ));
 
+          const ariaLabel = `${date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${dayShifts.length} shift${dayShifts.length !== 1 ? 's' : ''}`;
+
           return (
             <button
               key={key}
               onClick={() => onSelect?.(startOfDay(date))}
+              role="gridcell"
+              aria-selected={isSelected || undefined}
+              aria-current={isToday ? "date" : undefined}
+              aria-label={ariaLabel}
+              onKeyDown={(e) => handleKeyDown(e, date)}
               className={[
-                "text-left px-2 py-2 border rounded-md h-24",
+                "text-left px-2 py-2 border rounded-md min-h-[6rem] sm:min-h-[6rem]",
                 "hover:bg-accent hover:text-accent-foreground",
                 isSelected ? "bg-accent text-accent-foreground border-ring ring-2 ring-ring" : "bg-background",
                 isToday && !isSelected ? "ring-2 ring-primary" : "",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isSunday ? "bg-blue-50 dark:bg-blue-950/30" : isSaturday ? "bg-zinc-100 dark:bg-zinc-900/40" : "",
               ].join(" ")}
-              style={
-                !isSelected && weekendBg
-                  ? { backgroundColor: weekendBg }
-                  : undefined
-              }
             >
               <div className="flex items-center justify-between">
                 <div className={"text-sm " + (isSelected ? "font-bold" : isToday ? "font-semibold" : "font-medium")}>
