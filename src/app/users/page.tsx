@@ -621,9 +621,8 @@ const filteredUsers = React.useMemo(() => {
           </div>
         )}
 
-        {/* Add form */}
-        <form
-          onSubmit={handleCreate}
+        {/* Add form (inputs only; remove Add User button) */}
+        <div
           style={{ display: "grid", gap: 8, maxWidth: 520, marginBottom: 20 }}
         >
           <div>
@@ -675,62 +674,8 @@ const filteredUsers = React.useMemo(() => {
               <option value="Paramedic">Paramedic</option>
             </select>
           </div>
-          <div>
-            <button
-              type="submit"
-              disabled={createMut.isPending || !tenantId || !employeeId}
-              style={{ background: "#16a34a", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: createMut.isPending ? 0.6 : 1 }}
-            >
-              {createMut.isPending ? "Adding…" : "Add User"}
-            </button>
-            {createMut.isError ? (
-              <span style={{ color: "red", marginLeft: 8 }}>
-                {(createMut.error as Error)?.message}
-              </span>
-            ) : null}
-            {showSuccess ? (
-              <span style={{ color: "green", marginLeft: 8 }}>Added.</span>
-            ) : null}
-            {generatedPw ? (
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: 8,
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 6,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>Temporary password:</div>
-                  <button
-                    type="button"
-                    style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(generatedPw);
-                        setCopiedPw(true);
-                        setTimeout(() => setCopiedPw(false), 1500);
-                      } catch {}
-                    }}
-                  >
-                    {copiedPw ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-                <code>{generatedPw}</code>
-                <div style={{ fontSize: 12, color: "#64748b" }}>
-                  Copy it now; it won't be shown again.
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </form>
+          
+        </div>
 
         {/* Invite user (email link) */}
         <form
