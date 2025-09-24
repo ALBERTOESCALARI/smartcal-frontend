@@ -93,7 +93,7 @@ type MeResponse = {
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const toast = useToast();
+  const { toast } = useToast();
 
   const [open, setOpen] = useState(false);
 

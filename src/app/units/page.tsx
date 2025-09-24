@@ -71,7 +71,7 @@ export default function UnitsPage() {
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState("");
 
-  const toast = useToast();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: sessionUser } = useSession();

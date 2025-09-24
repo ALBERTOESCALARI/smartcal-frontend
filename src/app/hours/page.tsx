@@ -20,6 +20,14 @@ type DraftAccrual = { pto: string; sick: string; vacation: string };
 
 type DraftState = Record<string, DraftAccrual>;
 
+const numberHeaderClass = "px-4 py-3 font-medium text-right";
+const numberSubheaderClass = "px-4 pb-2 text-right text-xs text-muted-foreground";
+const numberCellClass = "px-4 py-3 text-right align-middle font-mono tabular-nums";
+const accrualHeaderClass = "px-4 py-3 font-medium text-center";
+const accrualCellClass = "px-2 py-3 text-right align-middle";
+const accrualInputClass = "h-8 w-24 text-right font-mono tabular-nums";
+const actionCellClass = "px-4 py-3 text-right align-middle whitespace-nowrap";
+
 export default function HoursPage() {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
@@ -112,6 +120,11 @@ export default function HoursPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {tenantId && (
+              <span className="rounded-full border border-muted-foreground/30 px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Agency: {tenantId}
+              </span>
+            )}
             <Button
               variant="outline"
               onClick={() => hoursQuery.refetch()}
@@ -124,7 +137,7 @@ export default function HoursPage() {
 
         {!tenantId ? (
           <Card className="p-4 text-sm text-muted-foreground">
-            Set an active tenant to view hour summaries.
+            Set an active agency to view hour summaries.
           </Card>
         ) : hoursQuery.isLoading ? (
           <Card className="p-4 text-sm text-muted-foreground">Loading hours…</Card>
@@ -143,27 +156,27 @@ export default function HoursPage() {
                 <thead className="bg-muted/60">
                   <tr className="text-left">
                     <th className="px-4 py-3 font-medium">Employee</th>
-                    <th className="px-4 py-3 font-medium text-right">Regular</th>
-                    <th className="px-4 py-3 font-medium text-right">Overtime</th>
-                    <th className="px-4 py-3 font-medium text-right">PTO</th>
-                    <th className="px-4 py-3 font-medium text-right">Sick</th>
-                    <th className="px-4 py-3 font-medium text-right">Vacation</th>
-                    <th className="px-4 py-3 font-medium" colSpan={3}>
+                    <th className={numberHeaderClass}>Regular</th>
+                    <th className={numberHeaderClass}>Overtime</th>
+                    <th className={numberHeaderClass}>PTO</th>
+                    <th className={numberHeaderClass}>Sick</th>
+                    <th className={numberHeaderClass}>Vacation</th>
+                    <th className={accrualHeaderClass} colSpan={3}>
                       Accruals (defaults to 0)
                     </th>
                     <th className="px-4 py-3" />
                   </tr>
                   <tr className="text-left text-xs text-muted-foreground">
-                    <th />
-                    <th className="px-4 pb-2 text-right">hrs</th>
-                    <th className="px-4 pb-2 text-right">hrs</th>
-                    <th className="px-4 pb-2 text-right">hrs</th>
-                    <th className="px-4 pb-2 text-right">hrs</th>
-                    <th className="px-4 pb-2 text-right">hrs</th>
-                    <th className="px-4 pb-2 text-right">PTO</th>
-                    <th className="px-4 pb-2 text-right">Sick</th>
-                    <th className="px-4 pb-2 text-right">Vacation</th>
-                    <th />
+                    <th className="px-4 pb-2" />
+                    <th className={numberSubheaderClass}>hrs</th>
+                    <th className={numberSubheaderClass}>hrs</th>
+                    <th className={numberSubheaderClass}>hrs</th>
+                    <th className={numberSubheaderClass}>hrs</th>
+                    <th className={numberSubheaderClass}>hrs</th>
+                    <th className={numberSubheaderClass}>PTO</th>
+                    <th className={numberSubheaderClass}>Sick</th>
+                    <th className={numberSubheaderClass}>Vacation</th>
+                    <th className="px-4 pb-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -180,22 +193,22 @@ export default function HoursPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={numberCellClass}>
                           {formatHours(row.regularHours)}
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={numberCellClass}>
                           {formatHours(row.overtimeHours)}
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={numberCellClass}>
                           {formatHours(row.ptoHours)}
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={numberCellClass}>
                           {formatHours(row.sickHours)}
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={numberCellClass}>
                           {formatHours(row.vacationHours)}
                         </td>
-                        <td className="px-2 py-3 text-right align-middle">
+                        <td className={accrualCellClass}>
                           <Input
                             inputMode="decimal"
                             value={draft.pto}
@@ -208,10 +221,10 @@ export default function HoursPage() {
                                 },
                               }))
                             }
-                            className="h-8 w-24 text-right"
+                            className={accrualInputClass}
                           />
                         </td>
-                        <td className="px-2 py-3 text-right align-middle">
+                        <td className={accrualCellClass}>
                           <Input
                             inputMode="decimal"
                             value={draft.sick}
@@ -224,10 +237,10 @@ export default function HoursPage() {
                                 },
                               }))
                             }
-                            className="h-8 w-24 text-right"
+                            className={accrualInputClass}
                           />
                         </td>
-                        <td className="px-2 py-3 text-right align-middle">
+                        <td className={accrualCellClass}>
                           <Input
                             inputMode="decimal"
                             value={draft.vacation}
@@ -240,10 +253,10 @@ export default function HoursPage() {
                                 },
                               }))
                             }
-                            className="h-8 w-24 text-right"
+                            className={accrualInputClass}
                           />
                         </td>
-                        <td className="px-4 py-3 text-right align-middle">
+                        <td className={actionCellClass}>
                           <Button
                             size="sm"
                             onClick={() => saveMutation.mutate({ userId: row.userId, accrual: draft })}

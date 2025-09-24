@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { createShift, fetchShifts, getShift, updateShift, type Shift } from "@/features/shifts/api";
 import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
-import { loadSessionUser } from "@/lib/auth";
+import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 // ----- Types & helpers -----
@@ -272,7 +272,7 @@ function getPrimaryCredential(u: User): string {
 
 export default function ShiftsPage() {
   const qc = useQueryClient();
-  const toast = useToast();
+  const { toast } = useToast();
 
   const [tenantId, setTenantId] = useState("");
   useEffect(() => {

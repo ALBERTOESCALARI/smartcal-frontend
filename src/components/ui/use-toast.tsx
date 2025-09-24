@@ -10,12 +10,20 @@ import {
   ToastViewport,
 } from "./toast";
 
+export type ToastVariant = "default" | "destructive";
+
 export type ToastMessage = {
   title?: string;
   description?: string;
+  variant?: ToastVariant;
+  [key: string]: unknown;
 };
 
-const ToastContext = React.createContext<(msg: ToastMessage) => void>(() => { });
+type ToastContextValue = {
+  toast: (msg: ToastMessage) => void;
+};
+
+const ToastContext = React.createContext<ToastContextValue>({ toast: () => {} });
 
 export function ToastProviderWithViewport({ children }: Readonly<{ children: React.ReactNode }>) {
   const [messages, setMessages] = React.useState<ToastMessage[]>([]);
@@ -29,12 +37,17 @@ export function ToastProviderWithViewport({ children }: Readonly<{ children: Rea
   }, []);
 
   return (
-    <ToastContext.Provider value={push}>
+    <ToastContext.Provider value={{ toast: push }}>
       <ToastProvider>
         {children}
         <ToastViewport />
         {messages.map((m, i) => (
-          <Toast key={i} open onOpenChange={() => { }}>
+          <Toast
+            key={i}
+            open
+            onOpenChange={() => {}}
+            className={m.variant === "destructive" ? "border-destructive bg-destructive/10" : undefined}
+          >
             <div className="grid gap-1">
               {m.title && <ToastTitle>{m.title}</ToastTitle>}
               {m.description && <ToastDescription>{m.description}</ToastDescription>}
