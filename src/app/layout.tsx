@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-gray-100 text-slate-900 dark:bg-neutral-950 dark:text-neutral-100`}
       >
         <ToastProviderWithViewport>
           <Providers>
