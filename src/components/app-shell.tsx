@@ -108,6 +108,12 @@ export default function AppShell({ children }: AppShellProps) {
   // Timeout fallback for slow auth
   const [timedOut, setTimedOut] = useState(false);
 
+  // Inline login form state for timeout screen
+  const [tEmail, setTEmail] = useState("");
+  const [tPw, setTPw] = useState("");
+  const [tBusy, setTBusy] = useState(false);
+  const [tErr, setTErr] = useState<string | null>(null);
+
   // Persist tenant_id only once (first time it’s discovered/selected)
   function setTenantIdOnce(id?: string | null) {
     if (!id) return;
@@ -294,18 +300,82 @@ export default function AppShell({ children }: AppShellProps) {
           <Image
             src="/smartcal-logo.png"
             alt="SmartCal Logo"
-            height={256}
-            width={256}
-            className="h-64 w-64 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
+            height={192}
+            width={192}
+            className="h-48 w-48 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
             priority
           />
           <div className="text-2xl font-semibold">SmartCal</div>
           <div className="text-sm text-muted-foreground text-center max-w-sm">
             Connection timed out. Please sign in to continue.
           </div>
-          <Button size="sm" className="font-semibold" onClick={() => { setTimedOut(false); router.push('/login'); }}>
-            Sign in
-          </Button>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                setTErr(null);
+                setTBusy(true);
+                const body = new URLSearchParams();
+                body.set("username", tEmail.trim());
+                body.set("password", tPw);
+                const tokenUrl = API_BASE ? `${API_BASE}/auth/token` : "/auth/token";
+                const resp = await fetch(tokenUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                  body,
+                  credentials: "include",
+                });
+                if (!resp.ok) {
+                  const msg = await resp.text();
+                  throw new Error(msg || `Login failed (${resp.status})`);
+                }
+                const json = await resp.json();
+                if (!json?.access_token) throw new Error("No access token returned");
+                localStorage.setItem("token", json.access_token);
+                setTimedOut(false);
+                setAuthed(true);
+                setTBusy(false);
+                router.replace("/dashboard");
+              } catch (err: any) {
+                setTBusy(false);
+                setTErr(err?.message || "Unable to sign in");
+              }
+            }}
+            className="w-full max-w-sm grid gap-3"
+          >
+            <div className="grid gap-1">
+              <label htmlFor="to-email" className="text-sm font-medium">Email</label>
+              <input
+                id="to-email"
+                type="email"
+                value={tEmail}
+                onChange={(e) => setTEmail(e.target.value)}
+                required
+                autoComplete="username"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="grid gap-1">
+              <label htmlFor="to-pw" className="text-sm font-medium">Password</label>
+              <input
+                id="to-pw"
+                type="password"
+                value={tPw}
+                onChange={(e) => setTPw(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                placeholder="••••••••"
+              />
+            </div>
+            {tErr ? (
+              <div className="text-sm text-red-600">{tErr}</div>
+            ) : null}
+            <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
+              {tBusy ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
         </div>
       </div>
     );
