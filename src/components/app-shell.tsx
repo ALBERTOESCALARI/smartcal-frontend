@@ -276,11 +276,11 @@ export default function AppShell({ children }: AppShellProps) {
       );
     }
     return (
-      <Link href="/login">
-        <Button variant="outline" size="sm" className="font-semibold">Login</Button>
-      </Link>
+      <Button variant="outline" size="sm" className="font-semibold" onClick={() => router.push('/login')}>
+        Login
+      </Button>
     );
-  }, [mounted, authed, handleLogout]);
+  }, [mounted, authed, handleLogout, router]);
 
   if (timedOut && !authed) {
     return (
@@ -289,18 +289,18 @@ export default function AppShell({ children }: AppShellProps) {
           <Image
             src="/smartcal-logo.png"
             alt="SmartCal Logo"
-            height={96}
-            width={96}
-            className="h-24 w-24 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
+            height={256}
+            width={256}
+            className="h-64 w-64 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
             priority
           />
           <div className="text-2xl font-semibold">SmartCal</div>
           <div className="text-sm text-muted-foreground text-center max-w-sm">
             Connection timed out. Please sign in to continue.
           </div>
-          <Link href="/login">
-            <Button size="sm" className="font-semibold">Sign in</Button>
-          </Link>
+          <Button size="sm" className="font-semibold" onClick={() => router.push('/login')}>
+            Sign in
+          </Button>
         </div>
       </div>
     );
@@ -331,9 +331,9 @@ export default function AppShell({ children }: AppShellProps) {
               <Image
                 src="/smartcal-logo.png"
                 alt="SmartCal Logo"
-                className="h-10 w-10 rounded-md bg-white ring-1 ring-slate-200 p-0.5 dark:bg-neutral-900 dark:ring-neutral-700"
-                height={55}
-                width={55}
+                className="h-24 w-24 rounded-md bg-white ring-1 ring-slate-200 p-0.5 dark:bg-neutral-900 dark:ring-neutral-700"
+                height={96}
+                width={96}
                 priority
               />
               <span>SmartCal</span>
