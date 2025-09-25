@@ -371,6 +371,9 @@ export default function AppShell({ children }: AppShellProps) {
             <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
               {tBusy ? "Signing in…" : "Sign in"}
             </Button>
+            <Link href="/forgot-password" className="text-sm text-blue-600 hover:underline cursor-pointer text-center mt-2">
+              Forgot password?
+            </Link>
           </form>
         </div>
       </div>
