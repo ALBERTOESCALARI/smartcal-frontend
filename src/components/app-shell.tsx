@@ -210,24 +210,21 @@ export default function AppShell({ children }: AppShellProps) {
     void loadMe();
   }, [mounted, pathname]);
 
-  // If auth hasn't resolved after a grace period, show minimal sign-in screen
+  // If auth/me is still loading after a grace period, show minimal screen
   useEffect(() => {
-    // Skip timeout screen on the login route
-    if (pathname === "/login") {
-      setTimedOut(false);
-      return;
-    }
     const ms = 5000; // 5s
     setTimedOut(false);
+    if (!loadingMe) return; // only arm when we're actively loading auth
     const id = setTimeout(() => {
-      if (!authed) setTimedOut(true);
+      setTimedOut(true);
     }, ms);
     return () => clearTimeout(id);
-  }, [authed, pathname]);
+  }, [loadingMe, pathname]);
 
   const handleLogout = useCallback(() => {
     logout();
     setAuthed(false);
+    setTimedOut(true);
     toast({ title: "Signed out", description: "You have been logged out." });
     router.replace("/login");
   }, [router, toast]);
@@ -293,7 +290,7 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }, [mounted, authed, handleLogout, router]);
 
-  if (timedOut && !authed && pathname !== "/login") {
+  if (timedOut) {
     return (
       <div className="min-h-screen w-screen fixed inset-0 z-[9999] flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
         <div className="flex flex-col items-center gap-6">
