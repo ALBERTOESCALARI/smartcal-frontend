@@ -1,6 +1,5 @@
 "use client";
 
-import SmartCalLogo from "@/assets/smartcal-logo.png";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -293,7 +292,7 @@ export default function AppShell({ children }: AppShellProps) {
 
             <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
               <Image
-                src={SmartCalLogo}
+                src="/smartcal-logo.png"
                 alt="SmartCal Logo"
                 className="h-6 w-6"
                 height={24}
