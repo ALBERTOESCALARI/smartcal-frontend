@@ -213,7 +213,14 @@ export default function AppShell({ children }: AppShellProps) {
   // If auth/me is still loading after a grace period, show minimal screen
   useEffect(() => {
     const ms = 5000; // 5s
-    if (!loadingMe) return; // only arm when we're actively loading auth
+
+    // Do not show the timeout splash on explicit auth pages
+    if (pathname === "/login" || pathname === "/forgot-password") {
+      setTimedOut(false);
+      return;
+    }
+
+    if (!loadingMe) return; // only arm while auth is actively loading
     const id = setTimeout(() => {
       setTimedOut(true);
     }, ms);
@@ -289,7 +296,7 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }, [mounted, authed, handleLogout, router]);
 
-  if (timedOut) {
+  if (timedOut && pathname !== "/login" && pathname !== "/forgot-password") {
     return (
       <div className="min-h-screen w-screen fixed inset-0 z-[9999] flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
         <div className="flex flex-col items-center gap-6">
