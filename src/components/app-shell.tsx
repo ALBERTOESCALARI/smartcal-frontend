@@ -295,8 +295,8 @@ export default function AppShell({ children }: AppShellProps) {
                 src="/smartcal-logo.png"
                 alt="SmartCal Logo"
                 className="h-10 w-10 rounded-md bg-white ring-1 ring-slate-200 p-0.5 dark:bg-neutral-900 dark:ring-neutral-700"
-                height={45}
-                width={45}
+                height={55}
+                width={55}
                 priority
               />
               <span>SmartCal</span>
