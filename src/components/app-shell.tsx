@@ -210,22 +210,28 @@ export default function AppShell({ children }: AppShellProps) {
     void loadMe();
   }, [mounted, pathname]);
 
-  // If auth/me is still loading after a grace period, show minimal screen
+  // Show minimal screen if auth is slow or if user is unauthenticated for a while
   useEffect(() => {
     const ms = 5000; // 5s
 
-    // Do not show the timeout splash on explicit auth pages
+    // Never show timeout overlay on explicit auth pages
     if (pathname === "/login" || pathname === "/forgot-password") {
       setTimedOut(false);
       return;
     }
 
-    if (!loadingMe) return; // only arm while auth is actively loading
+    const shouldArm = !authed || loadingMe; // arm when logged out or when loading
+    if (!shouldArm) {
+      setTimedOut(false);
+      return;
+    }
+
     const id = setTimeout(() => {
       setTimedOut(true);
     }, ms);
+
     return () => clearTimeout(id);
-  }, [loadingMe, pathname]);
+  }, [authed, loadingMe, pathname]);
 
   const handleLogout = useCallback(() => {
     logout();
