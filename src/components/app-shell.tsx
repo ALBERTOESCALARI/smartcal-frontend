@@ -339,8 +339,17 @@ export default function AppShell({ children }: AppShellProps) {
                   credentials: "include",
                 });
                 if (!resp.ok) {
-                  const msg = await resp.text();
-                  throw new Error(msg || `Login failed (${resp.status})`);
+                  let msg = "Login failed";
+                  try {
+                    const data = await resp.json();
+                    msg = (typeof data?.detail === "string" && data.detail) || msg;
+                  } catch {
+                    const text = await resp.text();
+                    if (text) msg = text;
+                  }
+                  if (resp.status === 401) msg = "Invalid email or password";
+                  if (resp.status === 404) msg = "Auth service not found at /auth/token";
+                  throw new Error(msg);
                 }
                 const json = await resp.json();
                 if (!json?.access_token) throw new Error("No access token returned");
@@ -356,38 +365,43 @@ export default function AppShell({ children }: AppShellProps) {
             }}
             className="w-full max-w-sm grid gap-3"
           >
-            <div className="grid gap-1">
-              <label htmlFor="to-email" className="text-sm font-medium">Email</label>
-              <input
-                id="to-email"
-                type="email"
-                value={tEmail}
-                onChange={(e) => setTEmail(e.target.value)}
-                required
-                autoComplete="username"
-                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                placeholder="you@example.com"
-              />
-            </div>
-            <div className="grid gap-1">
-              <label htmlFor="to-pw" className="text-sm font-medium">Password</label>
-              <input
-                id="to-pw"
-                type="password"
-                value={tPw}
-                onChange={(e) => setTPw(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                placeholder="••••••••"
-              />
-            </div>
-            {tErr ? (
-              <div className="text-sm text-red-600">{tErr}</div>
-            ) : null}
-            <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
-              {tBusy ? "Signing in…" : "Sign in"}
-            </Button>
+            {/* Only show sign-in form if not showing forgot password */}
+            {!showForgot && (
+              <>
+                <div className="grid gap-1">
+                  <label htmlFor="to-email" className="text-sm font-medium">Email</label>
+                  <input
+                    id="to-email"
+                    type="email"
+                    value={tEmail}
+                    onChange={(e) => setTEmail(e.target.value)}
+                    required
+                    autoComplete="username"
+                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="to-pw" className="text-sm font-medium">Password</label>
+                  <input
+                    id="to-pw"
+                    type="password"
+                    value={tPw}
+                    onChange={(e) => setTPw(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="••••••••"
+                  />
+                </div>
+                {tErr ? (
+                  <div className="text-sm text-red-600">{tErr}</div>
+                ) : null}
+                <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
+                  {tBusy ? "Signing in…" : "Sign in"}
+                </Button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => setShowForgot((v) => !v)}
@@ -396,7 +410,7 @@ export default function AppShell({ children }: AppShellProps) {
               {showForgot ? "Back to sign in" : "Forgot password?"}
             </button>
             {showForgot && (
-              <div className="mt-2 grid gap-3 border-t pt-3">
+              <div className="mt-2 w-full max-w-sm grid gap-3 border-t pt-3">
                 <div className="text-sm text-muted-foreground text-center">
                   Enter your email and we’ll send a reset link.
                 </div>
@@ -413,6 +427,9 @@ export default function AppShell({ children }: AppShellProps) {
                     placeholder="you@example.com"
                   />
                 </div>
+                {tErr ? (
+                  <div className="text-sm text-red-600">{tErr}</div>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -422,7 +439,6 @@ export default function AppShell({ children }: AppShellProps) {
                     try {
                       setTErr(null);
                       setTBusy(true);
-                      // Optional: call your backend if available
                       const url = API_BASE ? `${API_BASE}/auth/forgot` : "/auth/forgot";
                       const resp = await fetch(url, {
                         method: "POST",
@@ -431,8 +447,16 @@ export default function AppShell({ children }: AppShellProps) {
                         credentials: "include",
                       });
                       if (!resp.ok) {
-                        const msg = await resp.text();
-                        throw new Error(msg || `Request failed (${resp.status})`);
+                        let msg = "Reset request failed";
+                        try {
+                          const data = await resp.json();
+                          msg = data?.detail || msg;
+                        } catch {
+                          const text = await resp.text();
+                          if (text) msg = text;
+                        }
+                        if (resp.status === 404) msg = "Password reset is not enabled on this server.";
+                        throw new Error(msg);
                       }
                       toast({ title: "Check your email", description: "If an account exists, a reset link was sent." });
                     } catch (err: any) {
