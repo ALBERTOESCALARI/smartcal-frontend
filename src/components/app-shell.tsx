@@ -302,7 +302,7 @@ export default function AppShell({ children }: AppShellProps) {
             className="h-48 w-48 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
             priority
           />
-          <div className="text-2xl font-semibold">SmartCal</div>
+          
           <div className="text-sm text-muted-foreground text-center max-w-sm">
             Connection timed out. Please sign in to continue.
           </div>
