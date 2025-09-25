@@ -612,59 +612,71 @@ const filteredUsers = React.useMemo(() => {
         )}
 
         {/* Add form (inputs only; remove Add User button) */}
-        <div
-          style={{ display: "grid", gap: 8, maxWidth: 520, marginBottom: 20 }}
-        >
-          <div>
-            <label style={{ display: "block", fontSize: 12 }}>Email</label>
+        <div className="max-w-xl space-y-4">
+          <div className="space-y-1">
+            <label htmlFor="user-email" className="text-sm font-medium">Email</label>
             <input
+              id="user-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               required
-              style={{ width: "100%" }}
+              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12 }}>Name (optional)</label>
+
+          <div className="space-y-1">
+            <label htmlFor="user-name" className="text-sm font-medium">Name (optional)</label>
             <input
+              id="user-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Full name"
-              style={{ width: "100%" }}
+              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12 }}>Employee ID</label>
+
+          <div className="space-y-1">
+            <label htmlFor="user-empid" className="text-sm font-medium">Employee ID</label>
             <input
+              id="user-empid"
               type="text"
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
               placeholder="e.g. E12345"
               required
-              style={{ width: "100%" }}
+              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12 }}>Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="member">member</option>
-              <option value="admin">admin</option>
-            </select>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label htmlFor="user-role" className="text-sm font-medium">Role</label>
+              <select
+                id="user-role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="user-creds" className="text-sm font-medium">Credentials</label>
+              <select
+                id="user-creds"
+                value={credentials}
+                onChange={(e) => setCredentials(e.target.value as Credential)}
+                className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="EMT">EMT</option>
+                <option value="Paramedic">Paramedic</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12 }}>Credentials</label>
-            <select
-              value={credentials}
-              onChange={(e) => setCredentials(e.target.value as Credential)}
-            >
-              <option value="EMT">EMT</option>
-              <option value="Paramedic">Paramedic</option>
-            </select>
-          </div>
-          
         </div>
 
         {/* Invite user (email link) */}
