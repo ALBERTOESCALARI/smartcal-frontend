@@ -217,7 +217,7 @@ export default function AppShell({ children }: AppShellProps) {
       setTimedOut(false);
       return;
     }
-    const ms = 8000; // 8s
+    const ms = 5000; // 5s
     setTimedOut(false);
     const id = setTimeout(() => {
       if (!authed) setTimedOut(true);
@@ -295,7 +295,7 @@ export default function AppShell({ children }: AppShellProps) {
 
   if (timedOut && !authed && pathname !== "/login") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
+      <div className="min-h-screen w-screen fixed inset-0 z-[9999] flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
         <div className="flex flex-col items-center gap-6">
           <Image
             src="/smartcal-logo.png"
