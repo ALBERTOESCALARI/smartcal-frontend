@@ -105,6 +105,9 @@ export default function AppShell({ children }: AppShellProps) {
   const [loadingMe, setLoadingMe] = useState(false);
   const [tokenUser, setTokenUser] = useState<Partial<MeUser> | null>(null);
 
+  // Timeout fallback for slow auth
+  const [timedOut, setTimedOut] = useState(false);
+
   // Persist tenant_id only once (first time it’s discovered/selected)
   function setTenantIdOnce(id?: string | null) {
     if (!id) return;
@@ -201,6 +204,16 @@ export default function AppShell({ children }: AppShellProps) {
     void loadMe();
   }, [mounted, pathname]);
 
+  // If auth hasn't resolved after a grace period, show minimal sign-in screen
+  useEffect(() => {
+    const ms = 8000; // 8s
+    setTimedOut(false);
+    const id = setTimeout(() => {
+      if (!authed) setTimedOut(true);
+    }, ms);
+    return () => clearTimeout(id);
+  }, [authed, pathname]);
+
   const handleLogout = useCallback(() => {
     logout();
     setAuthed(false);
@@ -268,6 +281,30 @@ export default function AppShell({ children }: AppShellProps) {
       </Link>
     );
   }, [mounted, authed, handleLogout]);
+
+  if (timedOut && !authed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
+        <div className="flex flex-col items-center gap-6">
+          <Image
+            src="/smartcal-logo.png"
+            alt="SmartCal Logo"
+            height={96}
+            width={96}
+            className="h-24 w-24 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
+            priority
+          />
+          <div className="text-2xl font-semibold">SmartCal</div>
+          <div className="text-sm text-muted-foreground text-center max-w-sm">
+            Connection timed out. Please sign in to continue.
+          </div>
+          <Link href="/login">
+            <Button size="sm" className="font-semibold">Sign in</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
