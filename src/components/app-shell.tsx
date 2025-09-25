@@ -206,6 +206,11 @@ export default function AppShell({ children }: AppShellProps) {
 
   // If auth hasn't resolved after a grace period, show minimal sign-in screen
   useEffect(() => {
+    // Skip timeout screen on the login route
+    if (pathname === "/login") {
+      setTimedOut(false);
+      return;
+    }
     const ms = 8000; // 8s
     setTimedOut(false);
     const id = setTimeout(() => {
@@ -282,7 +287,7 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }, [mounted, authed, handleLogout, router]);
 
-  if (timedOut && !authed) {
+  if (timedOut && !authed && pathname !== "/login") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
         <div className="flex flex-col items-center gap-6">
@@ -298,7 +303,7 @@ export default function AppShell({ children }: AppShellProps) {
           <div className="text-sm text-muted-foreground text-center max-w-sm">
             Connection timed out. Please sign in to continue.
           </div>
-          <Button size="sm" className="font-semibold" onClick={() => router.push('/login')}>
+          <Button size="sm" className="font-semibold" onClick={() => { setTimedOut(false); router.push('/login'); }}>
             Sign in
           </Button>
         </div>
