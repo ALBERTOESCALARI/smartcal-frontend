@@ -213,7 +213,6 @@ export default function AppShell({ children }: AppShellProps) {
   // If auth/me is still loading after a grace period, show minimal screen
   useEffect(() => {
     const ms = 5000; // 5s
-    setTimedOut(false);
     if (!loadingMe) return; // only arm when we're actively loading auth
     const id = setTimeout(() => {
       setTimedOut(true);
@@ -302,7 +301,7 @@ export default function AppShell({ children }: AppShellProps) {
             className="h-48 w-48 rounded-md bg-white ring-1 ring-slate-200 p-1 dark:bg-neutral-900 dark:ring-neutral-700"
             priority
           />
-          
+          <div className="text-2xl font-semibold">SmartCal</div>
           <div className="text-sm text-muted-foreground text-center max-w-sm">
             Connection timed out. Please sign in to continue.
           </div>
@@ -408,7 +407,7 @@ export default function AppShell({ children }: AppShellProps) {
                 width={96}
                 priority
               />
-              <span>SmartCal</span>
+              
             </Link>
             {(loadingMe || identityText) && (
               <span className="text-sm text-green-600 ml-4">
