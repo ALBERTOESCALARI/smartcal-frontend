@@ -113,6 +113,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [tPw, setTPw] = useState("");
   const [tBusy, setTBusy] = useState(false);
   const [tErr, setTErr] = useState<string | null>(null);
+  const [showForgot, setShowForgot] = useState(false);
 
   // Persist tenant_id only once (first time it’s discovered/selected)
   function setTenantIdOnce(id?: string | null) {
@@ -220,17 +221,20 @@ export default function AppShell({ children }: AppShellProps) {
       return;
     }
 
-    const shouldArm = !authed || loadingMe; // arm when logged out or when loading
-    if (!shouldArm) {
-      setTimedOut(false);
+    // Immediately show splash when not authenticated
+    if (!authed) {
+      setTimedOut(true);
       return;
     }
 
-    const id = setTimeout(() => {
-      setTimedOut(true);
-    }, ms);
+    // Otherwise, if auth is still loading, arm the slow-auth timer
+    if (loadingMe) {
+      const id = setTimeout(() => setTimedOut(true), ms);
+      return () => clearTimeout(id);
+    }
 
-    return () => clearTimeout(id);
+    // If authenticated and not loading, ensure splash is hidden
+    setTimedOut(false);
   }, [authed, loadingMe, pathname]);
 
   const handleLogout = useCallback(() => {
@@ -384,9 +388,64 @@ export default function AppShell({ children }: AppShellProps) {
             <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
               {tBusy ? "Signing in…" : "Sign in"}
             </Button>
-            <Link href="/forgot-password" className="text-sm text-blue-600 hover:underline cursor-pointer text-center mt-2">
-              Forgot password?
-            </Link>
+            <button
+              type="button"
+              onClick={() => setShowForgot((v) => !v)}
+              className="text-sm text-blue-600 hover:underline cursor-pointer text-center mt-2"
+            >
+              {showForgot ? "Back to sign in" : "Forgot password?"}
+            </button>
+            {showForgot && (
+              <div className="mt-2 grid gap-3 border-t pt-3">
+                <div className="text-sm text-muted-foreground text-center">
+                  Enter your email and we’ll send a reset link.
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="to-email-forgot" className="text-sm font-medium">Email</label>
+                  <input
+                    id="to-email-forgot"
+                    type="email"
+                    value={tEmail}
+                    onChange={(e) => setTEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="font-semibold"
+                  disabled={tBusy}
+                  onClick={async () => {
+                    try {
+                      setTErr(null);
+                      setTBusy(true);
+                      // Optional: call your backend if available
+                      const url = API_BASE ? `${API_BASE}/auth/forgot` : "/auth/forgot";
+                      const resp = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email: tEmail.trim() }),
+                        credentials: "include",
+                      });
+                      if (!resp.ok) {
+                        const msg = await resp.text();
+                        throw new Error(msg || `Request failed (${resp.status})`);
+                      }
+                      toast({ title: "Check your email", description: "If an account exists, a reset link was sent." });
+                    } catch (err: any) {
+                      setTErr(err?.message || "Unable to send reset link");
+                    } finally {
+                      setTBusy(false);
+                    }
+                  }}
+                >
+                  Send reset link
+                </Button>
+              </div>
+            )}
           </form>
         </div>
       </div>
