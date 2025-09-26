@@ -274,6 +274,7 @@ React.useEffect(() => {
   const [generatedPw, setGeneratedPw] = React.useState<string | null>(null);
   const [copiedPw, setCopiedPw] = React.useState(false);
   const [inviteMsg, setInviteMsg] = React.useState<string | null>(null);
+  const [inviteLink, setInviteLink] = React.useState<string | null>(null);
   const [showBulk, setShowBulk] = React.useState(false);
   // Invite existing users controls
   const [inviteAllBusy, setInviteAllBusy] = React.useState(false);
@@ -467,12 +468,18 @@ const filteredUsers = React.useMemo(() => {
       employee_id?: string;
       credentials: Credential;
     }) => inviteUser(tenantId, payload),
-    onSuccess: () => {
-      setInviteMsg("Invite sent (check email)");
-      setTimeout(() => setInviteMsg(null), 2000);
+    onSuccess: (data: any) => {
+      const link = data?.invite_link || null;
+      setInviteLink(link);
+      if (link && typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(link).catch(() => {});
+      }
+      setInviteMsg(link ? "Invite link generated" : "Invite created");
+      setTimeout(() => setInviteMsg(null), 3000);
     },
     onError: (err: unknown) => {
-      const msg = getErrMsg(err) || "Failed to send invite";
+      setInviteLink(null);
+      const msg = getErrMsg(err) || "Failed to generate invite link";
       setInviteMsg(msg);
     },
   });
@@ -697,9 +704,9 @@ const filteredUsers = React.useMemo(() => {
           }}
           className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
         >
-          <div style={{ fontWeight: 600 }}>Invite user (send email link)</div>
+          <div style={{ fontWeight: 600 }}>Generate invite link (no email sent)</div>
           <div style={{ fontSize: 12, color: "#64748b" }}>
-            Sends a one-time link so the user can set their own password. No temp password needed.
+            Creates a one-time link so the user can set their own password. Copy and share it yourself.
           </div>
           <div>
             <button
@@ -707,20 +714,44 @@ const filteredUsers = React.useMemo(() => {
               disabled={!tenantId || createInvite.isPending}
               className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${createInvite.isPending ? 'opacity-60' : ''}`}
             >
-              {createInvite.isPending ? "Sending…" : "Send Invite"}
+              {createInvite.isPending ? "Generating…" : "Generate Link"}
             </button>
             {inviteMsg ? (
               <span
                 style={{
                   marginLeft: 8,
                   fontSize: 12,
-                  color: inviteMsg.includes("sent") ? "#16a34a" : "#b91c1c",
+                  color: inviteMsg.includes("generated") || inviteMsg.includes("created") ? "#16a34a" : "#b91c1c",
                 }}
               >
                 {inviteMsg}
               </span>
             ) : null}
           </div>
+          {inviteLink ? (
+            <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb" }}>
+              <div style={{ fontSize: 12, marginBottom: 6 }}>Invite link</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={inviteLink}
+                  readOnly
+                  style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof navigator !== "undefined" && navigator.clipboard) {
+                      navigator.clipboard.writeText(inviteLink).catch(() => {});
+                    }
+                  }}
+                  className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          ) : null}
         </form>
 
         {/* Invite existing users */}
@@ -777,9 +808,9 @@ const filteredUsers = React.useMemo(() => {
                   try {
                     const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
                     const resultList = res.results ?? [];
-                    const ok = resultList.filter((r) => r.status === "invited").length;
-                    const fail = resultList.filter((r) => r.status === "error").length;
-                    setInviteExistingMsg(`Invited: ${ok} • Failed: ${fail}`);
+                    const ok = resultList.filter((r: any) => r.status === "invite_link_generated").length;
+                    const fail = resultList.filter((r: any) => r.status === "error").length;
+                    setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
                   } catch (error: unknown) {
                     setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
                   } finally {
