@@ -15,6 +15,8 @@ import {
   type Availability,
   type AvailabilityStatus,
 } from "@/features/availability/api";
+import { createShift } from "@/features/shifts/api";
+import { fetchUnits, type Unit } from "@/features/units/api";
 import { fetchUsers, type User } from "@/features/users/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
@@ -266,6 +268,12 @@ export default function AvailabilityPage() {
     return map;
   }, [users]);
 
+  const unitsQuery = useQuery<Unit[]>({
+    queryKey: ["units", tenantId],
+    queryFn: () => fetchUnits(tenantId),
+    enabled: isAdmin && !!tenantId,
+  });
+
   const availabilityQuery = useQuery<Availability[]>({
     queryKey: ["availability", tenantId, monthKey, isAdmin ? "all" : "mine"],
     queryFn: () =>
@@ -286,6 +294,25 @@ export default function AvailabilityPage() {
 
   const availabilities = availabilityQuery.data ?? [];
   const myAvailabilities = myAvailabilityQuery.data ?? [];
+  const units = unitsQuery.data ?? [];
+  const defaultUnitId = units.length > 0 ? units[0].id : "";
+
+  const [unitSelections, setUnitSelections] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    setUnitSelections((curr) => {
+      const next = { ...curr };
+      let changed = false;
+      availabilities.forEach((item) => {
+        if (!next[item.id]) {
+          next[item.id] = defaultUnitId;
+          changed = true;
+        }
+      });
+      return changed ? next : curr;
+    });
+  }, [availabilities, defaultUnitId, isAdmin]);
 
   const calendarSource = isAdmin ? availabilities : myAvailabilities;
 
@@ -483,11 +510,27 @@ export default function AvailabilityPage() {
   });
 
   const approveMut = useMutation({
-    mutationFn: (availabilityId: string) => approveAvailability(tenantId, availabilityId),
+    mutationFn: async (args: { availability: Availability; unitId: string }) => {
+      if (!tenantId) throw new Error("Set a tenant first");
+      const { availability, unitId } = args;
+      if (!unitId) throw new Error("Select a unit before approving");
+      await approveAvailability(tenantId, availability.id);
+      await createShift(tenantId, {
+        unit_id: unitId,
+        user_id: availability.user_id,
+        start_time: availability.start_ts,
+        end_time: availability.end_ts,
+        notes: availability.notes ? `Availability approved: ${availability.notes}` : undefined,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "all"] });
       queryClient.invalidateQueries({ queryKey: ["availability", "mine", tenantId] });
       queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: unknown) => {
+      setFormMsg((err as Error)?.message ?? "Failed to approve availability");
+      setTimeout(() => setFormMsg(null), 4000);
     },
   });
 
@@ -588,6 +631,11 @@ export default function AvailabilityPage() {
                   </button>
                 ) : null}
               </div>
+              {isAdmin && units.length === 0 ? (
+                <div className="text-xs text-amber-600">
+                  No units found for this tenant. Create a unit before approving availability.
+                </div>
+              ) : null}
               <div className="space-y-2 max-h-72 overflow-y-auto">
                 {selectedDayAvailabilities.length === 0 ? (
                   <div className="text-xs text-muted-foreground">No availability for this day yet.</div>
@@ -595,7 +643,10 @@ export default function AvailabilityPage() {
                   selectedDayAvailabilities.map((item) => {
                     const isMine = myAvailabilities.some((mine) => mine.id === item.id);
                     const userName = extractUserName(usersById[item.user_id]) ?? (isMine ? "You" : item.user_id);
+                    const approveVariables = approveMut.variables as { availability?: Availability } | undefined;
+                    const isApproveBusy = approveMut.isPending && approveVariables?.availability?.id === item.id;
                     const busy = approveMut.isPending || denyMut.isPending || cancelMut.isPending;
+                    const selectedUnitId = unitSelections[item.id] || defaultUnitId;
                     const accent = STATUS_COLORS[item.status];
                     const bgTint = `${accent}1A`;
                     const borderTint = `${accent}66`;
@@ -617,6 +668,31 @@ export default function AvailabilityPage() {
                         <div className="text-xs text-muted-foreground mt-1">
                           {formatTimeRange(item.start_ts, item.end_ts)}
                         </div>
+                        {isAdmin ? (
+                          <div className="mt-2">
+                            <label className="text-xs font-medium">
+                              Assign unit
+                              <select
+                                value={selectedUnitId}
+                                onChange={(e) =>
+                                  setUnitSelections((prev) => ({ ...prev, [item.id]: e.target.value }))
+                                }
+                                className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                disabled={units.length === 0}
+                              >
+                                {units.length === 0 ? (
+                                  <option value="">No units available</option>
+                                ) : (
+                                  units.map((unit) => (
+                                    <option key={unit.id} value={unit.id}>
+                                      {unit.name}
+                                    </option>
+                                  ))
+                                )}
+                              </select>
+                            </label>
+                          </div>
+                        ) : null}
                         {item.notes ? (
                           <div className="text-xs mt-2 bg-muted/40 rounded p-2">{item.notes}</div>
                         ) : null}
@@ -636,10 +712,17 @@ export default function AvailabilityPage() {
                             <Button
                               type="button"
                               size="sm"
-                              onClick={() => approveMut.mutate(item.id)}
-                              disabled={busy}
-                            >
-                              {approveMut.isPending && approveMut.variables === item.id ? "Approving…" : "Approve"}
+                              onClick={() => {
+                                const unitId = unitSelections[item.id] || defaultUnitId;
+                                if (!unitId) {
+                                  alert("Select a unit before approving");
+                                  return;
+                                }
+                                approveMut.mutate({ availability: item, unitId });
+                              }}
+                          disabled={busy || units.length === 0}
+                        >
+                              {isApproveBusy ? "Approving…" : "Approve"}
                             </Button>
                           ) : null}
                           {isAdmin && item.status !== "denied" ? (
