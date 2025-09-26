@@ -308,6 +308,58 @@ export default function AvailabilityPage() {
     return map;
   }, [calendarSource, usersById, isAdmin, me]);
 
+  const [formStart, setFormStart] = React.useState<string>(() => formatDateTimeLocal(addHours(new Date(), 1)));
+  const [formEnd, setFormEnd] = React.useState<string>(() => formatDateTimeLocal(addHours(new Date(), 2)));
+  const [formNotes, setFormNotes] = React.useState("");
+  const [formMsg, setFormMsg] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!multiDayMode && selectedDate) {
+      const singular = startOfDay(selectedDate);
+      if (!(selectedDates.length === 1 && sameDay(selectedDates[0], singular))) {
+        setSelectedDates([singular]);
+      }
+    }
+  }, [multiDayMode, selectedDate, selectedDates]);
+
+  React.useEffect(() => {
+    if (!template || !selectedDate) return;
+    const applied = applyTemplate(template, selectedDate);
+    if (applied) {
+      setFormStart(applied.start);
+      setFormEnd(applied.end);
+      setDurationHrs(applied.durationHours);
+    }
+  }, [template, selectedDate]);
+
+  React.useEffect(() => {
+    const start = parseLocal(formStart);
+    if (Number.isNaN(start.getTime())) return;
+    const end = new Date(start);
+    end.setHours(end.getHours() + durationHrs);
+    setFormEnd(formatDateTimeLocal(end));
+  }, [durationHrs]);
+
+  React.useEffect(() => {
+    const start = parseLocal(formStart);
+    const end = parseLocal(formEnd);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const diff = (end.getTime() - start.getTime()) / 36e5;
+    if (diff > 0 && Math.round(diff) !== durationHrs) {
+      setDurationHrs(Math.max(1, Math.round(diff)));
+    }
+  }, [formEnd, formStart, durationHrs]);
+
+  React.useEffect(() => {
+    if (selectedDate) {
+      const start = new Date(selectedDate);
+      start.setHours(9, 0, 0, 0);
+      const end = addHours(start, 4);
+      setFormStart(formatDateTimeLocal(start));
+      setFormEnd(formatDateTimeLocal(end));
+    }
+  }, []);
+
   const handleSelect = React.useCallback(
     (day: Date | null) => {
       if (!day) return;
@@ -369,58 +421,6 @@ export default function AvailabilityPage() {
     if (!selectedDate) return [] as Availability[];
     return calendarSource.filter((item) => sameDay(new Date(item.start_ts), selectedDate));
   }, [calendarSource, selectedDate]);
-
-  const [formStart, setFormStart] = React.useState<string>(() => formatDateTimeLocal(addHours(new Date(), 1)));
-  const [formEnd, setFormEnd] = React.useState<string>(() => formatDateTimeLocal(addHours(new Date(), 2)));
-  const [formNotes, setFormNotes] = React.useState("");
-  const [formMsg, setFormMsg] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!multiDayMode && selectedDate) {
-      const singular = startOfDay(selectedDate);
-      if (!(selectedDates.length === 1 && sameDay(selectedDates[0], singular))) {
-        setSelectedDates([singular]);
-      }
-    }
-  }, [multiDayMode, selectedDate, selectedDates]);
-
-  React.useEffect(() => {
-    if (!template || !selectedDate) return;
-    const applied = applyTemplate(template, selectedDate);
-    if (applied) {
-      setFormStart(applied.start);
-      setFormEnd(applied.end);
-      setDurationHrs(applied.durationHours);
-    }
-  }, [template, selectedDate]);
-
-  React.useEffect(() => {
-    const start = parseLocal(formStart);
-    if (Number.isNaN(start.getTime())) return;
-    const end = new Date(start);
-    end.setHours(end.getHours() + durationHrs);
-    setFormEnd(formatDateTimeLocal(end));
-  }, [durationHrs]);
-
-  React.useEffect(() => {
-    const start = parseLocal(formStart);
-    const end = parseLocal(formEnd);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
-    const diff = (end.getTime() - start.getTime()) / 36e5;
-    if (diff > 0 && Math.round(diff) !== durationHrs) {
-      setDurationHrs(Math.max(1, Math.round(diff)));
-    }
-  }, [formEnd, formStart, durationHrs]);
-
-  React.useEffect(() => {
-    if (selectedDate) {
-      const start = new Date(selectedDate);
-      start.setHours(9, 0, 0, 0);
-      const end = addHours(start, 4);
-      setFormStart(formatDateTimeLocal(start));
-      setFormEnd(formatDateTimeLocal(end));
-    }
-  }, []);
 
   function saveTenant(next: string) {
     setTenantId(next);
