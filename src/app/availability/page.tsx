@@ -68,6 +68,62 @@ function ymd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function hasDate(list: Date[], date: Date): boolean {
+  return list.some((item) => sameDay(item, date));
+}
+
+const TEMPLATE_OPTIONS = [
+  { value: "", label: "(none)" },
+  { value: "07-19", label: "07:00 – 19:00" },
+  { value: "19-07", label: "19:00 – 07:00" },
+  { value: "10-19", label: "10:00 – 19:00" },
+  { value: "19-06", label: "19:00 – 06:00" },
+  { value: "12h", label: "12 hours (from next quarter)" },
+  { value: "24h", label: "24 hours (full day)" },
+];
+
+function applyTemplate(template: string, baseDate: Date): { start: string; end: string; durationHours: number } | null {
+  if (!template) return null;
+  const base = new Date(baseDate);
+  base.setSeconds(0, 0);
+
+  const match = /^(\d{2})-(\d{2})$/.exec(template);
+  if (match) {
+    const startHour = parseInt(match[1], 10);
+    const endHour = parseInt(match[2], 10);
+    const startDate = new Date(base);
+    startDate.setHours(startHour, 0, 0, 0);
+    const endDate = new Date(base);
+    endDate.setHours(endHour, 0, 0, 0);
+    if (endHour <= startHour) endDate.setDate(endDate.getDate() + 1);
+    const durationHours = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 36e5));
+    return { start: formatDateTimeLocal(startDate), end: formatDateTimeLocal(endDate), durationHours };
+  }
+
+  if (template === "12h") {
+    const startDate = addHours(roundToQuarter(baseDate), 0);
+    const endDate = addHours(startDate, 12);
+    return { start: formatDateTimeLocal(startDate), end: formatDateTimeLocal(endDate), durationHours: 12 };
+  }
+
+  if (template === "24h") {
+    const startDate = startOfDay(baseDate);
+    const endDate = addHours(startDate, 24);
+    return { start: formatDateTimeLocal(startDate), end: formatDateTimeLocal(endDate), durationHours: 24 };
+  }
+
+  return null;
+}
+
+function roundToQuarter(date: Date): Date {
+  const d = new Date(date);
+  const minutes = d.getMinutes();
+  const next = Math.ceil(minutes / 15) * 15;
+  d.setMinutes(next === 60 ? 0 : next, 0, 0);
+  if (next === 60) d.setHours(d.getHours() + 1);
+  return d;
+}
+
 function getStatusLabel(status: AvailabilityStatus): string {
   switch (status) {
     case "proposed":
@@ -175,6 +231,10 @@ export default function AvailabilityPage() {
 
   const [viewMonth, setViewMonth] = React.useState<Date>(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(startOfDay(new Date()));
+  const [selectedDates, setSelectedDates] = React.useState<Date[]>(() => [startOfDay(new Date())]);
+  const [multiDayMode, setMultiDayMode] = React.useState(false);
+  const [template, setTemplate] = React.useState<string>("");
+  const [durationHrs, setDurationHrs] = React.useState<number>(4);
 
   const windowStart = React.useMemo(() => {
     const start = startOfMonth(viewMonth);
@@ -248,6 +308,63 @@ export default function AvailabilityPage() {
     return map;
   }, [calendarSource, usersById, isAdmin, me]);
 
+  const handleSelect = React.useCallback(
+    (day: Date | null) => {
+      if (!day) return;
+      const normalized = startOfDay(day);
+      setSelectedDate(normalized);
+
+      if (multiDayMode) {
+        setSelectedDates((prev) => {
+          const exists = hasDate(prev, normalized);
+          if (exists) {
+            const next = prev.filter((d) => !sameDay(d, normalized));
+            return next.length > 0 ? next : [normalized];
+          }
+          return [...prev, normalized].sort((a, b) => a.getTime() - b.getTime());
+        });
+      } else {
+        setSelectedDates([normalized]);
+      }
+
+      if (template) {
+        const applied = applyTemplate(template, normalized);
+        if (applied) {
+          setFormStart(applied.start);
+          setFormEnd(applied.end);
+          setDurationHrs(applied.durationHours);
+          return;
+        }
+      }
+
+      const startReference = parseLocal(formStart);
+      const endReference = parseLocal(formEnd);
+
+      const startDate = new Date(normalized);
+      if (!Number.isNaN(startReference.getTime())) {
+        startDate.setHours(startReference.getHours(), startReference.getMinutes(), 0, 0);
+      } else {
+        startDate.setHours(9, 0, 0, 0);
+      }
+
+      const endDate = new Date(startDate);
+      if (!Number.isNaN(endReference.getTime())) {
+        endDate.setHours(endReference.getHours(), endReference.getMinutes(), 0, 0);
+        if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
+        const diff = (endDate.getTime() - startDate.getTime()) / 36e5;
+        if (diff > 0 && Math.round(diff) !== durationHrs) {
+          setDurationHrs(Math.max(1, Math.round(diff)));
+        }
+      } else {
+        endDate.setHours(endDate.getHours() + durationHrs);
+      }
+
+      setFormStart(formatDateTimeLocal(startDate));
+      setFormEnd(formatDateTimeLocal(endDate));
+    },
+    [multiDayMode, template, formStart, formEnd, durationHrs]
+  );
+
   const selectedDayAvailabilities = React.useMemo(() => {
     if (!selectedDate) return [] as Availability[];
     return calendarSource.filter((item) => sameDay(new Date(item.start_ts), selectedDate));
@@ -259,6 +376,43 @@ export default function AvailabilityPage() {
   const [formMsg, setFormMsg] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!multiDayMode && selectedDate) {
+      const singular = startOfDay(selectedDate);
+      if (!(selectedDates.length === 1 && sameDay(selectedDates[0], singular))) {
+        setSelectedDates([singular]);
+      }
+    }
+  }, [multiDayMode, selectedDate, selectedDates]);
+
+  React.useEffect(() => {
+    if (!template || !selectedDate) return;
+    const applied = applyTemplate(template, selectedDate);
+    if (applied) {
+      setFormStart(applied.start);
+      setFormEnd(applied.end);
+      setDurationHrs(applied.durationHours);
+    }
+  }, [template, selectedDate]);
+
+  React.useEffect(() => {
+    const start = parseLocal(formStart);
+    if (Number.isNaN(start.getTime())) return;
+    const end = new Date(start);
+    end.setHours(end.getHours() + durationHrs);
+    setFormEnd(formatDateTimeLocal(end));
+  }, [durationHrs]);
+
+  React.useEffect(() => {
+    const start = parseLocal(formStart);
+    const end = parseLocal(formEnd);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const diff = (end.getTime() - start.getTime()) / 36e5;
+    if (diff > 0 && Math.round(diff) !== durationHrs) {
+      setDurationHrs(Math.max(1, Math.round(diff)));
+    }
+  }, [formEnd, formStart, durationHrs]);
+
+  React.useEffect(() => {
     if (selectedDate) {
       const start = new Date(selectedDate);
       start.setHours(9, 0, 0, 0);
@@ -266,7 +420,7 @@ export default function AvailabilityPage() {
       setFormStart(formatDateTimeLocal(start));
       setFormEnd(formatDateTimeLocal(end));
     }
-  }, [selectedDate]);
+  }, []);
 
   function saveTenant(next: string) {
     setTenantId(next);
@@ -278,21 +432,49 @@ export default function AvailabilityPage() {
 
   const createMut = useMutation({
     mutationFn: async () => {
-      const start = parseLocal(formStart);
-      const end = parseLocal(formEnd);
-      if (end <= start) {
+      if (!tenantId) {
+        throw new Error("Set a tenant first");
+      }
+      const startTemplate = parseLocal(formStart);
+      const endTemplate = parseLocal(formEnd);
+      if (Number.isNaN(startTemplate.getTime()) || Number.isNaN(endTemplate.getTime())) {
+        throw new Error("Select valid start and end times");
+      }
+      if (endTemplate <= startTemplate) {
         throw new Error("End time must be after start time");
       }
-      return createAvailability(tenantId, {
-        start_ts: toISO(start),
-        end_ts: toISO(end),
-        notes: formNotes.trim() ? formNotes.trim() : undefined,
+
+      const targets = multiDayMode && selectedDates.length > 0
+        ? selectedDates
+        : selectedDate
+        ? [selectedDate]
+        : [startTemplate];
+
+      const payloads = targets.map((target) => {
+        const baseDay = new Date(target);
+        const start = new Date(baseDay);
+        start.setHours(startTemplate.getHours(), startTemplate.getMinutes(), 0, 0);
+        const end = new Date(baseDay);
+        end.setHours(endTemplate.getHours(), endTemplate.getMinutes(), 0, 0);
+        if (end <= start) {
+          end.setDate(end.getDate() + 1);
+        }
+        return createAvailability(tenantId, {
+          start_ts: toISO(start),
+          end_ts: toISO(end),
+          notes: formNotes.trim() ? formNotes.trim() : undefined,
+        });
       });
+
+      await Promise.all(payloads);
+      return payloads.length;
     },
-    onSuccess: () => {
-      setFormMsg("Availability submitted");
-      queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, isAdmin ? "all" : "mine"] });
+    onSuccess: (count) => {
+      setFormMsg(count > 1 ? `Submitted ${count} availability slots` : "Availability submitted");
+      queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "all"] });
+      queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "mine"] });
       queryClient.invalidateQueries({ queryKey: ["availability", "mine", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
       setTimeout(() => setFormMsg(null), 3000);
     },
     onError: (err: unknown) => {
@@ -305,6 +487,7 @@ export default function AvailabilityPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "all"] });
       queryClient.invalidateQueries({ queryKey: ["availability", "mine", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
 
@@ -313,6 +496,7 @@ export default function AvailabilityPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "all"] });
       queryClient.invalidateQueries({ queryKey: ["availability", "mine", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
 
@@ -321,6 +505,7 @@ export default function AvailabilityPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["availability", tenantId, monthKey, "all"] });
       queryClient.invalidateQueries({ queryKey: ["availability", "mine", tenantId] });
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
 
@@ -361,7 +546,8 @@ export default function AvailabilityPage() {
               month={viewMonth}
               onMonthChange={(next) => setViewMonth(startOfMonth(next))}
               selectedDate={selectedDate ?? undefined}
-              onSelect={(date) => setSelectedDate(date)}
+              selectedDates={selectedDates}
+              onSelect={handleSelect}
               shiftsByDate={shiftsByDate}
               loading={availabilityQuery.isLoading}
             />
@@ -372,6 +558,35 @@ export default function AvailabilityPage() {
               <div className="text-sm font-semibold">Selected day</div>
               <div className="text-sm text-muted-foreground">
                 {selectedDate ? selectedDate.toLocaleDateString(undefined, { dateStyle: "full" }) : "Pick a day"}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={multiDayMode}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setMultiDayMode(enabled);
+                      if (!enabled && selectedDate) {
+                        setSelectedDates([startOfDay(selectedDate)]);
+                      }
+                    }}
+                  />
+                  Multi-day select
+                </label>
+                <span>{selectedDates.length} day(s) selected</span>
+                {multiDayMode && selectedDates.length > 0 ? (
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => {
+                      setSelectedDates([]);
+                      setSelectedDate(null);
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
               </div>
               <div className="space-y-2 max-h-72 overflow-y-auto">
                 {selectedDayAvailabilities.length === 0 ? (
@@ -457,7 +672,10 @@ export default function AvailabilityPage() {
                   <Input
                     type="datetime-local"
                     value={formStart}
-                    onChange={(e) => setFormStart(e.target.value)}
+                    onChange={(e) => {
+                      setTemplate("");
+                      setFormStart(e.target.value);
+                    }}
                     min="1970-01-01T00:00"
                   />
                 </label>
@@ -466,8 +684,50 @@ export default function AvailabilityPage() {
                   <Input
                     type="datetime-local"
                     value={formEnd}
-                    onChange={(e) => setFormEnd(e.target.value)}
+                    onChange={(e) => {
+                      setTemplate("");
+                      setFormEnd(e.target.value);
+                    }}
                     min={formStart}
+                  />
+                </label>
+                <label className="text-sm font-medium flex flex-col gap-1">
+                  Template (optional)
+                  <select
+                    value={template}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTemplate(val);
+                      if (!val) return;
+                      const reference = selectedDate ?? new Date();
+                      const applied = applyTemplate(val, reference);
+                      if (applied) {
+                        setFormStart(applied.start);
+                        setFormEnd(applied.end);
+                        setDurationHrs(applied.durationHours);
+                      }
+                    }}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    {TEMPLATE_OPTIONS.map((opt) => (
+                      <option key={opt.value || "_none"} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-medium flex flex-col gap-1">
+                  Duration (hours)
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24}
+                    value={durationHrs}
+                    onChange={(e) => {
+                      setTemplate("");
+                      const val = Number(e.target.value || 1);
+                      setDurationHrs(Math.max(1, Math.min(24, Math.round(val))));
+                    }}
                   />
                 </label>
                 <label className="text-sm font-medium flex flex-col gap-1">
@@ -498,6 +758,11 @@ export default function AvailabilityPage() {
                 >
                   {createMut.isPending ? "Submitting…" : "Submit availability"}
                 </Button>
+                {multiDayMode && selectedDates.length > 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Multi-day mode will create one slot per selected day using the start/end times above.
+                  </div>
+                ) : null}
               </div>
             </Card>
           </div>
