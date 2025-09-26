@@ -12,7 +12,6 @@ import {
   fetchUsers,
   inviteExistingUsers,
   inviteUser,
-  requestPasswordReset,
   unlockUser,
   updateUser,
   type CreateUserPayload,
@@ -185,11 +184,6 @@ function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string
   return null;
 }
 
-type InviteResultWithEmail = InviteExistingResult & {
-  emailSent?: boolean;
-  emailError?: string;
-};
-
 // ────────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────────
@@ -316,7 +310,7 @@ React.useEffect(() => {
   // Invite existing users controls
   const [inviteSelectedBusy, setInviteSelectedBusy] = React.useState(false);
   const [inviteExistingMsg, setInviteExistingMsg] = React.useState<string | null>(null);
-  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteResultWithEmail[]>([]);
+  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteExistingResult[]>([]);
   const [inviteEmails, setInviteEmails] = React.useState(""); // comma or newline separated
   const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -363,43 +357,6 @@ React.useEffect(() => {
     }
     setTenantId(next);
     queryClient.invalidateQueries({ queryKey: ["users", next] });
-  }
-
-  async function sendInviteEmails(results: InviteExistingResult[]): Promise<{
-    sent: number;
-    attempted: number;
-    details: Record<string, { emailSent?: boolean; emailError?: string }>;
-  }> {
-    const successes = results.filter((r) => r.status === "invite_link_generated");
-    if (!successes.length) {
-      return { sent: 0, attempted: 0, details: {} };
-    }
-
-    const list = users ?? [];
-    const detailMap: Record<string, { emailSent?: boolean; emailError?: string }> = {};
-
-    await Promise.all(
-      successes.map(async (res) => {
-        const key = res.email.toLowerCase();
-        try {
-          const user = list.find((u) => (u.email || "").toLowerCase() === key);
-          const employeeId = user?.employee_id;
-          if (!employeeId) {
-            throw new Error("Missing employee ID for email invite");
-          }
-          await requestPasswordReset(employeeId, res.email);
-          detailMap[key] = { emailSent: true };
-        } catch (err) {
-          detailMap[key] = {
-            emailSent: false,
-            emailError: getErrMsg(err) || "Failed to send invite email",
-          };
-        }
-      })
-    );
-
-    const sent = Object.values(detailMap).filter((item) => item.emailSent).length;
-    return { sent, attempted: successes.length, details: detailMap };
   }
 
   function setEdit(id: string, field: "credentials", value: Credential): void;
@@ -884,7 +841,7 @@ const filteredUsers = React.useMemo(() => {
         <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
           <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-            Send set‑password links via email to selected users in this tenant.
+            Generate set‑password links for selected users and share them via your email client.
           </div>
 
           <div style={{ marginTop: 4 }}>
@@ -914,18 +871,8 @@ const filteredUsers = React.useMemo(() => {
                     const resultList = res.results ?? [];
                     const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
                     const fail = resultList.filter((r) => r.status === "error").length;
-                    const emailSummary = await sendInviteEmails(resultList);
-                    const parts = [`Links: ${ok}`, `Failed: ${fail}`];
-                    if (emailSummary.attempted > 0) {
-                      parts.push(`Emails sent: ${emailSummary.sent}/${emailSummary.attempted}`);
-                    }
-                    setInviteExistingMsg(parts.join(" • "));
-                    setInviteExistingResults(
-                      resultList.map((item) => {
-                        const detail = emailSummary.details[item.email.toLowerCase()] || {};
-                        return { ...item, ...detail };
-                      })
-                    );
+                    setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
+                    setInviteExistingResults(resultList);
                   } catch (error: unknown) {
                     setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
                     setInviteExistingResults([]);
@@ -974,12 +921,12 @@ const filteredUsers = React.useMemo(() => {
                       </span>
                     </div>
                     {hasLink ? (
-                      <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input
                           type="text"
                           readOnly
                           value={result.invite_link}
-                          style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                          style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
                         />
                         <button
                           type="button"
@@ -990,15 +937,23 @@ const filteredUsers = React.useMemo(() => {
                           }}
                           className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
                         >
-                          Copy
+                          Copy Link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!result.invite_link) return;
+                            const subject = encodeURIComponent("SmartCal invite link");
+                            const body = encodeURIComponent(
+                              `Hi ${result.email},\n\nUse this one-time link to set your password: ${result.invite_link}\n\nThis link may expire after use.`
+                            );
+                            window.location.href = `mailto:${encodeURIComponent(result.email)}?subject=${subject}&body=${body}`;
+                          }}
+                          className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                        >
+                          Email Link
                         </button>
                       </div>
-                    ) : null}
-                    {result.emailSent ? (
-                      <div style={{ fontSize: 12, color: "#16a34a" }}>Invite email sent</div>
-                    ) : null}
-                    {result.emailError ? (
-                      <div style={{ fontSize: 12, color: "#b91c1c" }}>Email error: {result.emailError}</div>
                     ) : null}
                     {result.error ? (
                       <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
