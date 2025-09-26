@@ -184,6 +184,17 @@ function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string
   return null;
 }
 
+function makeTempPassword(): string {
+  const length = 12;
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(length);
+    window.crypto.getRandomValues(bytes);
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@$#";
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  }
+  return Math.random().toString(36).slice(2, 2 + length).replace(/l|1|0|o/gi, "x");
+}
+
 // ────────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────────
@@ -244,6 +255,7 @@ export default function UsersPage() {
 
   // Determine current user + role (to restrict page for members)
 type MeState = {
+  id?: string;
   name?: string;
   employee_id?: string;
   email?: string;
@@ -269,6 +281,7 @@ React.useEffect(() => {
       const data = await res.json();
       if (cancelled) return;
       const nextMe: MeState = {
+        id: data?.id ?? data?.user?.id,
         name: data?.name ?? data?.user?.name,
         employee_id: data?.employee_id ?? data?.user?.employee_id,
         email: data?.user?.email,
@@ -320,6 +333,10 @@ React.useEffect(() => {
   const [pwCurrent, setPwCurrent] = React.useState("");
   const [pwNew, setPwNew] = React.useState("");
   const [pwMsg, setPwMsg] = React.useState<string | null>(null);
+  const [tempPw, setTempPw] = React.useState<string | null>(null);
+  const [tempPwExpiresAt, setTempPwExpiresAt] = React.useState<number | null>(null);
+  const [tempPwRemaining, setTempPwRemaining] = React.useState<number>(0);
+  const tempPwTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Inline edit buffer for table rows
   const [edits, setEdits] = React.useState<
@@ -345,6 +362,7 @@ React.useEffect(() => {
   React.useEffect(() => {
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
+      clearTempTimer();
     };
   }, []);
 
@@ -359,13 +377,48 @@ React.useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ["users", next] });
   }
 
+  function clearTempTimer() {
+    if (tempPwTimerRef.current) {
+      clearInterval(tempPwTimerRef.current);
+      tempPwTimerRef.current = null;
+    }
+  }
+
+  function startTempCountdown(expiresAt: number) {
+    if (typeof window === "undefined") return;
+    clearTempTimer();
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      setTempPwRemaining(remaining);
+      if (remaining <= 0) {
+        clearTempTimer();
+        setTempPw(null);
+        setTempPwExpiresAt(null);
+        setPwNew("");
+        setPwMsg((prev) => prev ?? "Temporary password hidden. Generate a new one if needed.");
+      }
+    };
+    update();
+    tempPwTimerRef.current = window.setInterval(update, 1000);
+  }
+
+  function primeTempPassword(user: User) {
+    const next = makeTempPassword();
+    setTempPw(next);
+    setPwNew(next);
+    const expires = Date.now() + 60_000;
+    setTempPwExpiresAt(expires);
+    startTempCountdown(expires);
+    setPwMsg("Temporary password generated. Share before it disappears.");
+  }
+
   function setEdit(id: string, field: "credentials", value: Credential): void;
 function setEdit(id: string, field: "email" | "name" | "role", value: string): void;
-function setEdit(
-  id: string,
-  field: "email" | "name" | "role" | "credentials",
-  value: string | Credential
-) {
+  function setEdit(
+    id: string,
+    field: "email" | "name" | "role" | "credentials",
+    value: string | Credential
+  ) {
   setEdits((prev) => ({
     ...prev,
     [id]: { ...(prev[id] || {}), [field]: value } as {
@@ -375,14 +428,86 @@ function setEdit(
       credentials?: Credential;
     },
   }));
-}
+  }
 
   function openPwModal(user: User) {
     setPwUser(user);
     setPwCurrent("");
     setPwNew("");
     setPwMsg(null);
+    clearTempTimer();
+    setTempPw(null);
+    setTempPwExpiresAt(null);
+    const meEmail = (me?.email || "").toLowerCase();
+    const isSelf = user.email?.toLowerCase() === meEmail;
+    if (!isSelf) {
+      primeTempPassword(user);
+    }
     setPwOpen(true);
+  }
+
+  function closePwModal() {
+    clearTempTimer();
+    setPwOpen(false);
+    setPwUser(null);
+    setPwCurrent("");
+    setPwNew("");
+    setTempPw(null);
+    setTempPwExpiresAt(null);
+    setTempPwRemaining(0);
+    setPwMsg(null);
+  }
+
+  async function handleApplyTempPassword() {
+    if (!pwUser || !tempPw) {
+      setPwMsg("Generate a temporary password first.");
+      return;
+    }
+    const requireAdminConfirm = (pwUser.role || "").toLowerCase() === "admin";
+    if (requireAdminConfirm && !pwCurrent) {
+      setPwMsg("Enter your admin password to confirm.");
+      return;
+    }
+    try {
+      setPwMsg(null);
+      await changePwMut.mutateAsync({
+        id: pwUser.id,
+        current_password: requireAdminConfirm ? pwCurrent : "__ADMIN_RESET__",
+        new_password: tempPw,
+      });
+      setPwMsg("Temporary password set. Share it within the next minute.");
+      setPwCurrent("");
+    } catch (err) {
+      setPwMsg(getErrMsg(err));
+    }
+  }
+
+  async function handleUpdateOwnPassword() {
+    if (!pwUser) return;
+    if (!pwCurrent || !pwNew) {
+      setPwMsg("Enter both current and new password.");
+      return;
+    }
+    if (pwNew.length < 8) {
+      setPwMsg("Password must be at least 8 characters long.");
+      return;
+    }
+    try {
+      setPwMsg(null);
+      await changePwMut.mutateAsync({
+        id: pwUser.id,
+        current_password: pwCurrent,
+        new_password: pwNew,
+      });
+      setPwMsg("Password updated. You can close this window.");
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => {
+        setPwMsg(null);
+        closePwModal();
+      }, 1500);
+    } catch (err) {
+      setPwMsg(getErrMsg(err));
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -528,34 +653,6 @@ const filteredUsers = React.useMemo(() => {
         current_password: args.current_password,
         new_password: args.new_password,
       });
-    },
-    onSuccess: () => {
-      setPwMsg("Password updated");
-      setTimeout(() => {
-        setPwMsg(null);
-        setPwOpen(false);
-        setPwUser(null);
-        setPwCurrent("");
-        setPwNew("");
-      }, 1500);
-    },
-    onError: (err: unknown) => {
-      const e = err as { response?: { data?: { detail?: string }; status?: number } };
-      const detail = e?.response?.data?.detail;
-      const status = e?.response?.status;
-      const msg =
-        typeof detail === "string"
-          ? detail
-          : status === 404
-          ? "Password endpoint not found (restart backend?)"
-          : status === 400
-          ? "Current password is incorrect"
-          : status === 422
-          ? "Invalid request (check fields)"
-          : status
-          ? `Request failed (status ${status})`
-          : "Failed to update password";
-      setPwMsg(msg);
     },
   });
 
@@ -1187,74 +1284,149 @@ const filteredUsers = React.useMemo(() => {
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
                 {pwUser.email}
               </div>
-              <div style={{ display: "grid", gap: 10 }}>
-                <label style={{ fontSize: 12 }}>
-                  Current password
-                  <input
-                    type="password"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                    placeholder="Temporary or current password"
-                    style={{ width: "100%" }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  New password
-                  <input
-                    type="password"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                    placeholder="New password"
-                    style={{ width: "100%" }}
-                  />
-                </label>
-                {pwMsg ? (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: String(pwMsg).includes("updated")
-                        ? "#16a34a"
-                        : "#b91c1c",
-                    }}
-                  >
-                    {pwMsg}
+              {(() => {
+                const meEmail = (me?.email || "").toLowerCase();
+                const isSelf = pwUser.email?.toLowerCase() === meEmail;
+                const needsAdminConfirm = !isSelf && (pwUser.role || "").toLowerCase() === "admin";
+                const showCurrentField = isSelf || needsAdminConfirm;
+
+                return (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {showCurrentField ? (
+                      <label style={{ fontSize: 12 }}>
+                        {isSelf
+                          ? "Your current password"
+                          : "Your admin password (for confirmation)"}
+                        <input
+                          type="password"
+                          value={pwCurrent}
+                          onChange={(e) => setPwCurrent(e.target.value)}
+                          placeholder={isSelf ? "Current password" : "Enter your password"}
+                          style={{ width: "100%" }}
+                        />
+                      </label>
+                    ) : null}
+
+                    {isSelf ? (
+                      <label style={{ fontSize: 12 }}>
+                        New password
+                        <input
+                          type="password"
+                          value={pwNew}
+                          onChange={(e) => setPwNew(e.target.value)}
+                          placeholder="New password"
+                          style={{ width: "100%" }}
+                        />
+                      </label>
+                    ) : (
+                      <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: 10, background: "#f9fafb", display: "grid", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>
+                          Temporary password
+                          {tempPw && tempPwRemaining > 0 ? (
+                            <span style={{ marginLeft: 6, fontWeight: 400, color: "#2563eb" }}>
+                              (expires in {tempPwRemaining}s)
+                            </span>
+                          ) : null}
+                        </div>
+                        {tempPw ? (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <input
+                              type="text"
+                              readOnly
+                              value={tempPw}
+                              style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof navigator !== "undefined" && navigator.clipboard) {
+                                  navigator.clipboard.writeText(tempPw).catch(() => {});
+                                }
+                              }}
+                              className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                            >
+                              Copy
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => primeTempPassword(pwUser)}
+                              className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                            >
+                              Regenerate
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => primeTempPassword(pwUser)}
+                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                          >
+                            Generate temporary password
+                          </button>
+                        )}
+                        <p style={{ fontSize: 12, color: "#64748b" }}>
+                          Share this password securely. After login the user should change it immediately.
+                        </p>
+                      </div>
+                    )}
+
+                    {pwMsg ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: String(pwMsg).toLowerCase().includes("fail") || String(pwMsg).toLowerCase().includes("error")
+                            ? "#b91c1c"
+                            : "#16a34a",
+                        }}
+                      >
+                        {pwMsg}
+                      </div>
+                    ) : null}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={closePwModal}
+                        disabled={changePwMut.isPending}
+                        style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6 }}
+                      >
+                        Close
+                      </button>
+                      {isSelf ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!tenantId) {
+                              alert("Set a tenant first");
+                              return;
+                            }
+                            handleUpdateOwnPassword();
+                          }}
+                          disabled={changePwMut.isPending}
+                          style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
+                        >
+                          {changePwMut.isPending ? "Updating…" : "Update password"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!tenantId) {
+                              alert("Set a tenant first");
+                              return;
+                            }
+                            handleApplyTempPassword();
+                          }}
+                          disabled={changePwMut.isPending || !tempPw}
+                          style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
+                        >
+                          {changePwMut.isPending ? "Applying…" : "Apply temporary password"}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                ) : null}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPwOpen(false);
-                      setPwUser(null);
-                    }}
-                    disabled={changePwMut.isPending}
-                    style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6 }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!tenantId) return alert("Set a tenant first");
-                      if (!pwCurrent || !pwNew)
-                        return alert("Enter both current and new password");
-                      if (pwNew.length < 8) {
-                        setPwMsg("Password must be at least 8 characters long.");
-                        return;
-                      }
-                      changePwMut.mutate({
-                        id: pwUser.id,
-                        current_password: pwCurrent,
-                        new_password: pwNew,
-                      });
-                    }}
-                    disabled={changePwMut.isPending}
-                    style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
-                  >
-                    {changePwMut.isPending ? "Updating…" : "Update password"}
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
             </div>
           </div>
                 ) : null}
