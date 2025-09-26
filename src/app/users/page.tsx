@@ -16,6 +16,8 @@ import {
   updateUser,
   type CreateUserPayload,
   type Credential,
+  type InviteExistingResult,
+  type InviteUserResponse,
   type User,
 } from "@/features/users/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -153,6 +155,35 @@ function getCredentialValue(user: User): string {
   return "";
 }
 
+function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string | null; invite_token?: string | null }): string | null {
+  if (invite_link && typeof invite_link === "string") {
+    return invite_link;
+  }
+
+  const token = typeof invite_token === "string" && invite_token.trim() ? invite_token.trim() : null;
+  if (!token) return null;
+
+  const envBase =
+    process.env.NEXT_PUBLIC_FRONTEND_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_WEB_BASE ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "";
+
+  const base = envBase.replace(/\/+$/, "");
+  if (base) {
+    return `${base}/auth/reset-complete?token=${encodeURIComponent(token)}`;
+  }
+
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin.replace(/\/+$/, "");
+    return `${origin}/auth/reset-complete?token=${encodeURIComponent(token)}`;
+  }
+
+  return null;
+}
+
 // ────────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────────
@@ -280,6 +311,7 @@ React.useEffect(() => {
   const [inviteAllBusy, setInviteAllBusy] = React.useState(false);
   const [inviteSelectedBusy, setInviteSelectedBusy] = React.useState(false);
   const [inviteExistingMsg, setInviteExistingMsg] = React.useState<string | null>(null);
+  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteExistingResult[]>([]);
   const [inviteEmails, setInviteEmails] = React.useState(""); // comma or newline separated
   const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -460,21 +492,25 @@ const filteredUsers = React.useMemo(() => {
 },
   });
 
-  const createInvite = useMutation({
-    mutationFn: (payload: {
+  const createInvite = useMutation<
+    InviteUserResponse,
+    unknown,
+    {
       email: string;
       name?: string;
       role?: string;
       employee_id?: string;
       credentials: Credential;
-    }) => inviteUser(tenantId, payload),
-    onSuccess: (data: any) => {
-      const link = data?.invite_link || null;
+    }
+  >({
+    mutationFn: (payload) => inviteUser(tenantId, payload),
+    onSuccess: (data) => {
+      const link = resolveInviteLink(data ?? {});
       setInviteLink(link);
       if (link && typeof navigator !== "undefined" && navigator.clipboard) {
         navigator.clipboard.writeText(link).catch(() => {});
       }
-      setInviteMsg(link ? "Invite link generated" : "Invite created");
+      setInviteMsg(link ? "Invite link generated" : "Invite created (no link returned)");
       setTimeout(() => setInviteMsg(null), 3000);
     },
     onError: (err: unknown) => {
@@ -767,12 +803,15 @@ const filteredUsers = React.useMemo(() => {
               onClick={async () => {
                 if (!tenantId) return alert("Set a tenant first");
                 setInviteExistingMsg(null);
+                setInviteExistingResults([]);
                 setInviteAllBusy(true);
                 try {
                   const res = await inviteExistingUsers(tenantId, { only_without_password: true });
                   setInviteExistingMsg(`Invited ${res.invited}/${res.total} (only users without password)`);
+                  setInviteExistingResults(res.results ?? []);
                 } catch (error: unknown) {
                   setInviteExistingMsg(getErrMsg(error) || "Failed to invite existing users");
+                  setInviteExistingResults([]);
                 } finally {
                   setInviteAllBusy(false);
                 }
@@ -804,15 +843,18 @@ const filteredUsers = React.useMemo(() => {
                     .filter(Boolean);
                   if (list.length === 0) return alert("Add at least one email");
                   setInviteExistingMsg(null);
+                  setInviteExistingResults([]);
                   setInviteSelectedBusy(true);
                   try {
                     const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
                     const resultList = res.results ?? [];
-                    const ok = resultList.filter((r: any) => r.status === "invite_link_generated").length;
-                    const fail = resultList.filter((r: any) => r.status === "error").length;
+                    const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
+                    const fail = resultList.filter((r) => r.status === "error").length;
                     setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
+                    setInviteExistingResults(resultList);
                   } catch (error: unknown) {
                     setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
+                    setInviteExistingResults([]);
                   } finally {
                     setInviteSelectedBusy(false);
                   }
@@ -825,9 +867,65 @@ const filteredUsers = React.useMemo(() => {
             </div>
           </div>
 
-          {inviteExistingMsg ? (
-            <div style={{ fontSize: 12, marginTop: 8, color: inviteExistingMsg.includes("Invited") ? "#16a34a" : "#b91c1c" }}>
-              {inviteExistingMsg}
+          {inviteExistingMsg ? (() => {
+            const lower = inviteExistingMsg.toLowerCase();
+            const color = lower.includes("fail") || lower.includes("error") ? "#b91c1c" : "#16a34a";
+            return (
+              <div style={{ fontSize: 12, marginTop: 8, color }}>
+                {inviteExistingMsg}
+              </div>
+            );
+          })() : null}
+          {inviteExistingResults.length > 0 ? (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              {inviteExistingResults.map((result, idx) => {
+                const hasLink = Boolean(result.invite_link);
+                return (
+                  <div
+                    key={`${result.email}-${idx}`}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 6,
+                      padding: 8,
+                      background: hasLink ? "#f9fafb" : "#fff",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{result.email}</span>
+                      <span style={{ fontSize: 12, color: hasLink ? "#16a34a" : result.status === "error" ? "#b91c1c" : "#64748b" }}>
+                        {result.status}
+                      </span>
+                    </div>
+                    {hasLink ? (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type="text"
+                          readOnly
+                          value={result.invite_link}
+                          style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof navigator !== "undefined" && navigator.clipboard && result.invite_link) {
+                              navigator.clipboard.writeText(result.invite_link).catch(() => {});
+                            }
+                          }}
+                          className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    ) : null}
+                    {result.error ? (
+                      <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>

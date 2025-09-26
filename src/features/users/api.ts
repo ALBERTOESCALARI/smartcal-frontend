@@ -217,6 +217,13 @@ export async function completePasswordReset(
 // ────────────────────────────────────────────────────────────────────────────────
 
 /** Invite a user (admin only) */
+export type InviteUserResponse = {
+  id: string;
+  email: string;
+  invite_link?: string | null;
+  invite_token?: string | null;
+};
+
 export async function inviteUser(
   tenantId: string,
   payload: {
@@ -227,9 +234,9 @@ export async function inviteUser(
     credentials: Credential;
     expires_minutes?: number;
   }
-): Promise<{ id: string; email: string }> {
+): Promise<InviteUserResponse> {
   try {
-    const { data } = await api.post("/users/invite", payload, {
+    const { data } = await api.post<InviteUserResponse>("/users/invite", payload, {
       params: tenantId ? { tenant_id: tenantId } : undefined,
     });
     return data;
@@ -316,12 +323,25 @@ export async function postBulkUsers(
 }
 
 /** Invite existing users (admin only) */
+export type InviteExistingResult = {
+  email: string;
+  status: string;
+  error?: string;
+  invite_link?: string;
+};
+
+export type InviteExistingResponse = {
+  invited: number;
+  total: number;
+  results: InviteExistingResult[];
+};
+
 export async function inviteExistingUsers(
   tenantId: string,
   payload: { emails?: string[]; only_without_password?: boolean } = {}
-): Promise<{ invited: number; total: number; results: {email:string; status:string; error?:string}[] }> {
+): Promise<InviteExistingResponse> {
   try {
-    const { data } = await api.post("/users/invite-existing", payload, {
+    const { data } = await api.post<InviteExistingResponse>("/users/invite-existing", payload, {
       params: tenantId ? { tenant_id: tenantId } : undefined,
     });
     return data;
