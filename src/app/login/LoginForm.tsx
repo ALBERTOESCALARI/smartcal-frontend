@@ -26,7 +26,11 @@ export default function LoginForm({ reason }: LoginFormProps) {
     setError(null);
     try {
       await login(email, password);
-      router.replace("/dashboard");
+      if (password.startsWith("TMP-")) {
+        router.replace("/auth/temp-change");
+      } else {
+        router.replace("/dashboard");
+      }
     } catch (err: unknown) {
       const maybeAxios = err as { response?: { data?: { detail?: string } } };
       setError(maybeAxios?.response?.data?.detail || "Login failed");

@@ -184,15 +184,17 @@ function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string
   return null;
 }
 
+const TEMP_PASSWORD_PREFIX = "TMP-";
+
 function makeTempPassword(): string {
-  const length = 12;
+  const length = 8;
   if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
     const bytes = new Uint8Array(length);
     window.crypto.getRandomValues(bytes);
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@$#";
-    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+    return `${TEMP_PASSWORD_PREFIX}${Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("")}`;
   }
-  return Math.random().toString(36).slice(2, 2 + length).replace(/l|1|0|o/gi, "x");
+  return `${TEMP_PASSWORD_PREFIX}${Math.random().toString(36).slice(2, 2 + length).replace(/l|1|0|o/gi, "x")}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -456,6 +458,7 @@ function setEdit(id: string, field: "email" | "name" | "role", value: string): v
     setTempPwExpiresAt(null);
     setTempPwRemaining(0);
     setPwMsg(null);
+    changePwMut.reset();
   }
 
   async function handleApplyTempPassword() {
@@ -472,7 +475,7 @@ function setEdit(id: string, field: "email" | "name" | "role", value: string): v
       setPwMsg(null);
       await changePwMut.mutateAsync({
         id: pwUser.id,
-        current_password: requireAdminConfirm ? pwCurrent : "__ADMIN_RESET__",
+        current_password: requireAdminConfirm ? pwCurrent : TEMP_PASSWORD_PREFIX,
         new_password: tempPw,
       });
       setPwMsg("Temporary password set. Share it within the next minute.");

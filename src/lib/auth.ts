@@ -78,6 +78,14 @@ export async function login(email: string, password: string) {
   }
 
   localStorage.setItem("token", token);
+  if (typeof window !== "undefined" && password.startsWith("TMP-")) {
+    sessionStorage.setItem(
+      "pending_temp_password",
+      JSON.stringify({ value: password, issuedAt: Date.now() })
+    );
+  } else if (typeof window !== "undefined") {
+    sessionStorage.removeItem("pending_temp_password");
+  }
   clearSessionUser();
 
   let sessionUser = buildSessionUser(data);
