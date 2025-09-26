@@ -624,6 +624,7 @@ const filteredUsers = React.useMemo(() => {
             Contact your administrator for user management.
           </div>
         </div>
+
       </div>
     ) : (
       <div className="mx-auto max-w-5xl p-4 md:p-6 space-y-6">
@@ -721,6 +722,53 @@ const filteredUsers = React.useMemo(() => {
             </div>
           </div>
         </div>
+
+        {/* Add user submit (admin only) */}
+        <form
+          onSubmit={handleCreate}
+          className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
+        >
+          <div style={{ fontWeight: 600 }}>Add user to tenant</div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            Creates the user in the database for this tenant. <strong>Email</strong> and <strong>Employee ID</strong> are required.
+          </div>
+          <div>
+            <button
+              type="submit"
+              disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
+              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${createMut.isPending ? 'opacity-60' : ''}`}
+              aria-disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
+            >
+              {createMut.isPending ? "Adding…" : "Add User"}
+            </button>
+          </div>
+          {showSuccess ? (
+            <div style={{ fontSize: 12, color: "#16a34a" }}>
+              User created successfully
+              {generatedPw ? (
+                <span style={{ marginLeft: 6 }}>
+                  · Temp password: <code>{generatedPw}</code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        navigator.clipboard
+                          .writeText(generatedPw)
+                          .then(() => setCopiedPw(true))
+                          .catch(() => {});
+                        setTimeout(() => setCopiedPw(false), 1500);
+                      }
+                    }}
+                    className="ml-2 rounded-md px-2 py-1 text-xs font-medium bg-white border hover:bg-neutral-50"
+                    style={{ marginLeft: 8 }}
+                  >
+                    {copiedPw ? "Copied!" : "Copy"}
+                  </button>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </form>
 
         {/* Invite user (email link) */}
         <form
