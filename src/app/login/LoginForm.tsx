@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -71,14 +70,6 @@ export default function LoginForm({ reason }: LoginFormProps) {
         <Button type="submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
-        <div className="text-right mt-1">
-          <Link
-            href="/auth/reset-request"
-            className="text-sm text-blue-600 hover:underline"
-          >
-            Forgot password?
-          </Link>
-        </div>
       </form>
     </Card>
   );
