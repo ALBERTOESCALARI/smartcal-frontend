@@ -242,6 +242,7 @@ export default function AvailabilityPage() {
         start: item.start_ts,
         end: item.end_ts,
         color: STATUS_COLORS[item.status],
+        status: item.status,
       });
     });
     return map;
@@ -380,8 +381,18 @@ export default function AvailabilityPage() {
                     const isMine = myAvailabilities.some((mine) => mine.id === item.id);
                     const userName = extractUserName(usersById[item.user_id]) ?? (isMine ? "You" : item.user_id);
                     const busy = approveMut.isPending || denyMut.isPending || cancelMut.isPending;
+                    const accent = STATUS_COLORS[item.status];
+                    const bgTint = `${accent}1A`;
+                    const borderTint = `${accent}66`;
                     return (
-                      <Card key={item.id} className="p-3 border border-muted">
+                      <Card
+                        key={item.id}
+                        className="p-3 border"
+                        style={{
+                          borderColor: borderTint,
+                          background: bgTint,
+                        }}
+                      >
                         <div className="flex items-center justify-between">
                           <span className="font-medium text-sm">{userName}</span>
                           <span className="text-xs" style={{ color: STATUS_COLORS[item.status] }}>

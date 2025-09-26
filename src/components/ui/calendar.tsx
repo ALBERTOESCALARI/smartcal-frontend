@@ -12,6 +12,7 @@ export type DayShift = {
   start?: string | null; // ISO string
   end?: string | null;   // ISO string
   color?: string | null; // e.g., "#16a34a"
+  status?: string | null;
 };
 
 export type CalendarProps = {
@@ -244,6 +245,36 @@ export function Calendar({
           const isSelected = isSameDay(date, selectedDate ?? null) || inMulti(date);
           const isToday = isSameDay(date, today);
           const dayShifts = shiftsByDate[key] || [];
+          const hasApproved = dayShifts.some((s) => s.status === "approved");
+
+          const baseClasses = [
+            "text-left px-2 py-2 border rounded-md min-h-[6rem] sm:min-h-[6rem]",
+            "hover:bg-accent/90 hover:text-accent-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          ];
+
+          if (isSelected) {
+            baseClasses.push(
+              hasApproved
+                ? "bg-emerald-100 text-emerald-900 border-emerald-300 ring-2 ring-emerald-400"
+                : "bg-accent text-accent-foreground border-ring ring-2 ring-ring"
+            );
+          } else {
+            baseClasses.push("bg-background");
+            if (hasApproved) {
+              baseClasses.push("border-emerald-200 bg-emerald-50 text-emerald-900");
+            }
+          }
+
+          if (isToday && !isSelected) {
+            baseClasses.push("ring-2 ring-primary ring-offset-1");
+          }
+
+          if (isSunday) {
+            baseClasses.push("bg-blue-50 dark:bg-blue-950/30");
+          } else if (isSaturday) {
+            baseClasses.push("bg-zinc-100 dark:bg-zinc-900/40");
+          }
 
           // Up to three color dots for quick visibility
           const previewDots = dayShifts.slice(0, 3).map((s, i) => (
@@ -266,14 +297,7 @@ export function Calendar({
               aria-current={isToday ? "date" : undefined}
               aria-label={ariaLabel}
               onKeyDown={(e) => handleKeyDown(e, date)}
-              className={[
-                "text-left px-2 py-2 border rounded-md min-h-[6rem] sm:min-h-[6rem]",
-                "hover:bg-accent hover:text-accent-foreground",
-                isSelected ? "bg-accent text-accent-foreground border-ring ring-2 ring-ring" : "bg-background",
-                isToday && !isSelected ? "ring-2 ring-primary" : "",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                isSunday ? "bg-blue-50 dark:bg-blue-950/30" : isSaturday ? "bg-zinc-100 dark:bg-zinc-900/40" : "",
-              ].join(" ")}
+              className={baseClasses.join(" ")}
             >
               <div className="flex items-center justify-between">
                 <div className={"text-sm " + (isSelected ? "font-bold" : isToday ? "font-semibold" : "font-medium")}>
