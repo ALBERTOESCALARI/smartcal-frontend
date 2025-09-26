@@ -12,6 +12,7 @@ import {
   fetchUsers,
   inviteExistingUsers,
   inviteUser,
+  requestPasswordReset,
   unlockUser,
   updateUser,
   type CreateUserPayload,
@@ -184,6 +185,11 @@ function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string
   return null;
 }
 
+type InviteResultWithEmail = InviteExistingResult & {
+  emailSent?: boolean;
+  emailError?: string;
+};
+
 // ────────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────────
@@ -308,10 +314,9 @@ React.useEffect(() => {
   const [inviteLink, setInviteLink] = React.useState<string | null>(null);
   const [showBulk, setShowBulk] = React.useState(false);
   // Invite existing users controls
-  const [inviteAllBusy, setInviteAllBusy] = React.useState(false);
   const [inviteSelectedBusy, setInviteSelectedBusy] = React.useState(false);
   const [inviteExistingMsg, setInviteExistingMsg] = React.useState<string | null>(null);
-  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteExistingResult[]>([]);
+  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteResultWithEmail[]>([]);
   const [inviteEmails, setInviteEmails] = React.useState(""); // comma or newline separated
   const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -358,6 +363,43 @@ React.useEffect(() => {
     }
     setTenantId(next);
     queryClient.invalidateQueries({ queryKey: ["users", next] });
+  }
+
+  async function sendInviteEmails(results: InviteExistingResult[]): Promise<{
+    sent: number;
+    attempted: number;
+    details: Record<string, { emailSent?: boolean; emailError?: string }>;
+  }> {
+    const successes = results.filter((r) => r.status === "invite_link_generated");
+    if (!successes.length) {
+      return { sent: 0, attempted: 0, details: {} };
+    }
+
+    const list = users ?? [];
+    const detailMap: Record<string, { emailSent?: boolean; emailError?: string }> = {};
+
+    await Promise.all(
+      successes.map(async (res) => {
+        const key = res.email.toLowerCase();
+        try {
+          const user = list.find((u) => (u.email || "").toLowerCase() === key);
+          const employeeId = user?.employee_id;
+          if (!employeeId) {
+            throw new Error("Missing employee ID for email invite");
+          }
+          await requestPasswordReset(employeeId, res.email);
+          detailMap[key] = { emailSent: true };
+        } catch (err) {
+          detailMap[key] = {
+            emailSent: false,
+            emailError: getErrMsg(err) || "Failed to send invite email",
+          };
+        }
+      })
+    );
+
+    const sent = Object.values(detailMap).filter((item) => item.emailSent).length;
+    return { sent, attempted: successes.length, details: detailMap };
   }
 
   function setEdit(id: string, field: "credentials", value: Credential): void;
@@ -842,33 +884,7 @@ const filteredUsers = React.useMemo(() => {
         <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
           <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-            Send set‑password links to users that are already in this tenant.
-          </div>
-
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!tenantId) return alert("Set a tenant first");
-                setInviteExistingMsg(null);
-                setInviteExistingResults([]);
-                setInviteAllBusy(true);
-                try {
-                  const res = await inviteExistingUsers(tenantId, { only_without_password: true });
-                  setInviteExistingMsg(`Invited ${res.invited}/${res.total} (only users without password)`);
-                  setInviteExistingResults(res.results ?? []);
-                } catch (error: unknown) {
-                  setInviteExistingMsg(getErrMsg(error) || "Failed to invite existing users");
-                  setInviteExistingResults([]);
-                } finally {
-                  setInviteAllBusy(false);
-                }
-              }}
-              disabled={inviteAllBusy || !tenantId}
-              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteAllBusy ? 'opacity-60' : ''}`}
-            >
-              {inviteAllBusy ? "Inviting…" : "Invite all without password"}
-            </button>
+            Send set‑password links via email to selected users in this tenant.
           </div>
 
           <div style={{ marginTop: 4 }}>
@@ -898,8 +914,18 @@ const filteredUsers = React.useMemo(() => {
                     const resultList = res.results ?? [];
                     const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
                     const fail = resultList.filter((r) => r.status === "error").length;
-                    setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
-                    setInviteExistingResults(resultList);
+                    const emailSummary = await sendInviteEmails(resultList);
+                    const parts = [`Links: ${ok}`, `Failed: ${fail}`];
+                    if (emailSummary.attempted > 0) {
+                      parts.push(`Emails sent: ${emailSummary.sent}/${emailSummary.attempted}`);
+                    }
+                    setInviteExistingMsg(parts.join(" • "));
+                    setInviteExistingResults(
+                      resultList.map((item) => {
+                        const detail = emailSummary.details[item.email.toLowerCase()] || {};
+                        return { ...item, ...detail };
+                      })
+                    );
                   } catch (error: unknown) {
                     setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
                     setInviteExistingResults([]);
@@ -967,6 +993,12 @@ const filteredUsers = React.useMemo(() => {
                           Copy
                         </button>
                       </div>
+                    ) : null}
+                    {result.emailSent ? (
+                      <div style={{ fontSize: 12, color: "#16a34a" }}>Invite email sent</div>
+                    ) : null}
+                    {result.emailError ? (
+                      <div style={{ fontSize: 12, color: "#b91c1c" }}>Email error: {result.emailError}</div>
                     ) : null}
                     {result.error ? (
                       <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
