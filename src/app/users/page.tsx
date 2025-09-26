@@ -338,7 +338,7 @@ React.useEffect(() => {
   const [tempPw, setTempPw] = React.useState<string | null>(null);
   const [tempPwExpiresAt, setTempPwExpiresAt] = React.useState<number | null>(null);
   const [tempPwRemaining, setTempPwRemaining] = React.useState<number>(0);
-  const tempPwTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const tempPwTimerRef = React.useRef<number | null>(null);
 
   // Inline edit buffer for table rows
   const [edits, setEdits] = React.useState<
@@ -380,8 +380,8 @@ React.useEffect(() => {
   }
 
   function clearTempTimer() {
-    if (tempPwTimerRef.current) {
-      clearInterval(tempPwTimerRef.current);
+    if (tempPwTimerRef.current !== null) {
+      window.clearInterval(tempPwTimerRef.current);
       tempPwTimerRef.current = null;
     }
   }
