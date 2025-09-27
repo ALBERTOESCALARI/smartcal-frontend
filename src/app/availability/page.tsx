@@ -449,6 +449,13 @@ export default function AvailabilityPage() {
     return calendarSource.filter((item) => sameDay(new Date(item.start_ts), selectedDate));
   }, [calendarSource, selectedDate]);
 
+  const proposedAvailabilities = React.useMemo(() => {
+    if (!isAdmin) return [] as Availability[];
+    return [...availabilities].filter((item) => item.status === "proposed").sort((a, b) => {
+      return new Date(a.start_ts).getTime() - new Date(b.start_ts).getTime();
+    });
+  }, [availabilities, isAdmin]);
+
   function saveTenant(next: string) {
     setTenantId(next);
     if (typeof window !== "undefined") {
@@ -743,6 +750,95 @@ export default function AvailabilityPage() {
                 )}
               </div>
             </Card>
+
+            {isAdmin ? (
+              <Card className="p-4 space-y-3">
+                <div className="text-sm font-semibold">Pending availability</div>
+                <div className="text-xs text-muted-foreground">
+                  Review proposed slots from team members and approve them into the schedule.
+                </div>
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {proposedAvailabilities.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">No proposed availability at the moment.</div>
+                  ) : (
+                    proposedAvailabilities.map((item) => {
+                      const userName = extractUserName(usersById[item.user_id]) ?? item.user_id;
+                      const selectedUnitId = unitSelections[item.id] || defaultUnitId;
+                      const isApproveBusy = approveMut.isPending && (approveMut.variables as { availability?: Availability } | undefined)?.availability?.id === item.id;
+                      const busy = approveMut.isPending || denyMut.isPending || cancelMut.isPending;
+                      const accent = STATUS_COLORS[item.status];
+                      const bgTint = `${accent}1A`;
+                      const borderTint = `${accent}66`;
+                      return (
+                        <Card
+                          key={`pending-${item.id}`}
+                          className="p-3 border"
+                          style={{ borderColor: borderTint, background: bgTint }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">{userName}</span>
+                            <span className="text-xs" style={{ color: STATUS_COLORS[item.status] }}>Proposed</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {new Date(item.start_ts).toLocaleString()} → {new Date(item.end_ts).toLocaleString()}
+                          </div>
+                          <div className="mt-2">
+                            <label className="text-xs font-medium">
+                              Assign unit
+                              <select
+                                value={selectedUnitId}
+                                onChange={(e) => setUnitSelections((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                disabled={units.length === 0}
+                              >
+                                {units.length === 0 ? (
+                                  <option value="">No units available</option>
+                                ) : (
+                                  units.map((unit) => (
+                                    <option key={unit.id} value={unit.id}>
+                                      {unit.name}
+                                    </option>
+                                  ))
+                                )}
+                              </select>
+                            </label>
+                          </div>
+                          {item.notes ? (
+                            <div className="text-xs mt-2 bg-muted/40 rounded p-2">{item.notes}</div>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => {
+                                const unitId = unitSelections[item.id] || defaultUnitId;
+                                if (!unitId) {
+                                  alert("Select a unit before approving");
+                                  return;
+                                }
+                                approveMut.mutate({ availability: item, unitId });
+                              }}
+                              disabled={busy || units.length === 0}
+                            >
+                              {isApproveBusy ? "Approving…" : "Approve"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => denyMut.mutate(item.id)}
+                              disabled={busy}
+                            >
+                              {denyMut.isPending && denyMut.variables === item.id ? "Denying…" : "Deny"}
+                            </Button>
+                          </div>
+                        </Card>
+                      );
+                    })
+                  )}
+                </div>
+              </Card>
+            ) : null}
 
             <Card className="p-4 space-y-3">
               <div className="text-sm font-semibold">Submit availability</div>
