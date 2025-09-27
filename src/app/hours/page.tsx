@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import RequireAuth from "@/components/require-auth";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,23 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { fetchUserHours, saveAccruals, type UserHourSummary } from "@/features/timekeeping/api";
+import { useSession } from "@/features/auth/useSession";
 import { getTenantId } from "@/lib/tenants";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+function parseJwt<T = Record<string, unknown>>(token: string | null): T | null {
+  try {
+    if (!token) return null;
+    const part = token.split(".")[1];
+    const json =
+      typeof window !== "undefined"
+        ? atob(part.replace(/-/g, "+").replace(/_/g, "/"))
+        : Buffer.from(part, "base64").toString();
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 function formatHours(value: number) {
   const n = Number.isFinite(value) ? value : 0;
@@ -34,6 +49,24 @@ export default function HoursPage() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: sessionUser } = useSession();
+
+  interface TokenClaims {
+    role?: string;
+    roles?: string[];
+  }
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const claims = parseJwt<TokenClaims>(token);
+  const tokenRole =
+    typeof claims?.role === "string"
+      ? claims.role
+      : Array.isArray(claims?.roles)
+      ? claims.roles[0]
+      : undefined;
+
+  const role = String(sessionUser?.role || tokenRole || "member").toLowerCase();
+  const isAdmin = role === "admin";
 
   useEffect(() => {
     setTenantId(getTenantId());
@@ -42,7 +75,7 @@ export default function HoursPage() {
   const hoursQuery = useQuery<UserHourSummary[]>({
     queryKey: ["timekeeping", "hours", tenantId],
     queryFn: () => fetchUserHours(tenantId ?? ""),
-    enabled: Boolean(tenantId),
+    enabled: Boolean(tenantId) && isAdmin,
     staleTime: 60 * 1000,
   });
 
@@ -105,9 +138,21 @@ export default function HoursPage() {
     },
   });
 
-  const rows = useMemo(() => hoursQuery.data ?? [], [hoursQuery.data]);
+  const rows = hoursQuery.data ?? [];
 
   const isSaving = saveMutation.isPending;
+
+  if (!isAdmin) {
+    return (
+      <RequireAuth>
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          <Card className="p-4 text-sm text-muted-foreground">
+            You need administrator privileges to view or edit hour summaries.
+          </Card>
+        </div>
+      </RequireAuth>
+    );
+  }
 
   return (
     <RequireAuth>

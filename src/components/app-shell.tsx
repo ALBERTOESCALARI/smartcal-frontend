@@ -20,7 +20,7 @@ const NAV: NavItem[] = [
   { href: "/shifts", label: "Calendar", role: "all" },
   { href: "/requests/pto", label: "PTO Requests", role: "all" },
   { href: "/requests/swaps", label: "Shift Swaps", role: "all" },
-  { href: "/hours", label: "Hours", role: "all" },
+  { href: "/hours", label: "Hours", role: "admin" },
   { href: "/units", label: "Units", role: "admin" },
   { href: "/users", label: "Users", role: "admin" },
 ];
