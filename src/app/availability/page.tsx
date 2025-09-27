@@ -732,8 +732,8 @@ export default function AvailabilityPage() {
                                 }
                                 approveMut.mutate({ availability: item, unitId });
                               }}
-                          disabled={busy || units.length === 0}
-                        >
+                              disabled={busy || units.length === 0}
+                            >
                               {isApproveBusy ? "Approving…" : "Approve"}
                             </Button>
                           ) : null}
@@ -845,7 +845,8 @@ export default function AvailabilityPage() {
               </Card>
             ) : null}
 
-            <Card className="p-4 space-y-3">
+            {!isAdmin ? (
+              <Card className="p-4 space-y-3">
               <div className="text-sm font-semibold">Submit availability</div>
               <div className="text-xs text-muted-foreground">
                 Pick a date and specify your preferred time window. Slots start as <strong>Proposed</strong> until an administrator reviews them.
@@ -949,6 +950,7 @@ export default function AvailabilityPage() {
                 ) : null}
               </div>
               </Card>
+            ) : null}
             ) : (
               <Card className="p-4 space-y-2">
                 <div className="text-sm font-semibold">Availability review</div>
