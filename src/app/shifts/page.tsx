@@ -142,6 +142,15 @@ function sameDay(a: Date, b: Date) {
     a.getDate() === b.getDate()
   );
 }
+// Strict overlap helper: returns true if a and b overlap in time
+function overlaps(aStartISO: string, aEndISO: string, bStartISO: string, bEndISO: string) {
+  const aStart = new Date(aStartISO).getTime();
+  const aEnd = new Date(aEndISO).getTime();
+  const bStart = new Date(bStartISO).getTime();
+  const bEnd = new Date(bEndISO).getTime();
+  if ([aStart, aEnd, bStart, bEnd].some(Number.isNaN)) return false;
+  return aStart < bEnd && bStart < aEnd; // strict overlap
+}
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -575,59 +584,85 @@ function applyTemplate(name: string, baseDate?: Date) {
   },
   });
 
+    // Helper to check for overlap with current user's shifts (client-side, using cache)
+    function hasMyOverlapFor(targetId: string): { conflict: boolean; conflictId?: string } {
+      const list = shiftsQ.data || [];
+      const target = list.find(s => s.id === targetId);
+      if (!target || !currentUserId) return { conflict: false };
+      for (const s of list) {
+        if (s.id === target.id) continue;
+        if (s.user_id !== currentUserId) continue;
+        if (overlaps(target.start_time, target.end_time, s.start_time, s.end_time)) {
+          return { conflict: true, conflictId: s.id };
+        }
+      }
+      return { conflict: false };
+    }
+
     const takeMut = useMutation({
-    mutationFn: async (id: string) => {
-      const tid = tenantId?.trim();
-  if (!tid) throw new Error("Missing tenant");
-
-    const tokenUserLatest = loadUserFromToken();
-    const sessionSnapshotLatest = extractAuthSnapshot(sessionUser as SessionUser | null);
-    const tokenSnapshotLatest = extractAuthSnapshot(tokenUserLatest);
-    const meSnapshotLatest = extractAuthSnapshot(meQ.data);
-
-     // 1) Try token/session/me for id/email
-      let uid: string | undefined =
-      sessionSnapshotLatest.id || tokenSnapshotLatest.id || meSnapshotLatest.id;
-      let email: string | undefined =
-      sessionSnapshotLatest.email || tokenSnapshotLatest.email || meSnapshotLatest.email;
-
-      // 2) If missing, fetch /auth/me once
-      if (!uid) {
-        const me = await fetchMe().catch(() => null);
-        const fetchedSnapshot = extractAuthSnapshot(me);
-        uid = fetchedSnapshot.id ?? uid;
-        email = fetchedSnapshot.email ?? email;
-      }
-
-      // 3) If still missing, try to resolve via users list (id or email)
-      if (!uid && Array.isArray(usersQ.data)) {
-        // Try by id first (if /auth/me returned an id/user_id but no email)
-        const cid = meSnapshotLatest.id;
-        if (cid && usersQ.data.some(u => u.id === cid)) {
-          uid = cid;
+      mutationFn: async (id: string) => {
+        // Client-side guard to avoid calling API when an overlap is obvious
+        const pre = hasMyOverlapFor(id);
+        if (pre.conflict) {
+          throw new Error("You already have a shift that overlaps this time.");
         }
-        // Fallback: map by normalized email
-        if (!uid && email) {
-          const norm = (s: string) => s.trim().toLowerCase();
-          const e = norm(email);
-          const match = usersQ.data.find(u => (u.email ? norm(u.email) : "") === e);
-          uid = match?.id;
-        }
-      }
+        const tid = tenantId?.trim();
+        if (!tid) throw new Error("Missing tenant");
 
-      if (!uid) throw new Error("Sign in required or user not in this tenant");
-      return updateShift(tid, id, { user_id: uid });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-      if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
-      toast({ title: "You signed up for this shift" });
-    },
-    onError: (err: unknown) => {
-      const msg = getErrMsg(err) ?? "Failed to take shift";
-      toast({ title: "Error", description: msg });
-    },
-  });
+        const tokenUserLatest = loadUserFromToken();
+        const sessionSnapshotLatest = extractAuthSnapshot(sessionUser as SessionUser | null);
+        const tokenSnapshotLatest = extractAuthSnapshot(tokenUserLatest);
+        const meSnapshotLatest = extractAuthSnapshot(meQ.data);
+
+        // 1) Try token/session/me for id/email
+        let uid: string | undefined =
+          sessionSnapshotLatest.id || tokenSnapshotLatest.id || meSnapshotLatest.id;
+        let email: string | undefined =
+          sessionSnapshotLatest.email || tokenSnapshotLatest.email || meSnapshotLatest.email;
+
+        // 2) If missing, fetch /auth/me once
+        if (!uid) {
+          const me = await fetchMe().catch(() => null);
+          const fetchedSnapshot = extractAuthSnapshot(me);
+          uid = fetchedSnapshot.id ?? uid;
+          email = fetchedSnapshot.email ?? email;
+        }
+
+        // 3) If still missing, try to resolve via users list (id or email)
+        if (!uid && Array.isArray(usersQ.data)) {
+          // Try by id first (if /auth/me returned an id/user_id but no email)
+          const cid = meSnapshotLatest.id;
+          if (cid && usersQ.data.some(u => u.id === cid)) {
+            uid = cid;
+          }
+          // Fallback: map by normalized email
+          if (!uid && email) {
+            const norm = (s: string) => s.trim().toLowerCase();
+            const e = norm(email);
+            const match = usersQ.data.find(u => (u.email ? norm(u.email) : "") === e);
+            uid = match?.id;
+          }
+        }
+
+        if (!uid) throw new Error("Sign in required or user not in this tenant");
+        return updateShift(tid, id, { user_id: uid });
+      },
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
+        if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
+        toast({ title: "You signed up for this shift" });
+      },
+      onError: (err: unknown) => {
+        const msg = getErrMsg(err) ?? "Failed to take shift";
+        // Normalize common backend responses
+        const norm = msg.toLowerCase();
+        const friendly =
+          norm.includes("overlap") || norm.includes("already") || norm.includes("409")
+            ? "You already have another assigned shift that overlaps this time."
+            : msg;
+        toast({ title: "Error", description: friendly });
+      },
+    });
 
   const releaseMut = useMutation({
     mutationFn: async (id: string) => {
@@ -946,7 +981,14 @@ const identity = identityParts.join(" • ");
                           variant="default"
                           size="sm"
                           disabled={takeMut.isPending}
-                          onClick={() => takeMut.mutate(s.id)}
+                          onClick={() => {
+                            const pre = hasMyOverlapFor(s.id);
+                            if (pre.conflict) {
+                              toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
+                              return;
+                            }
+                            takeMut.mutate(s.id);
+                          }}
                         >
                           {takeMut.isPending ? "Taking…" : "Sign up"}
                         </Button>
@@ -970,7 +1012,14 @@ const identity = identityParts.join(" • ");
                           variant="default"
                           size="sm"
                           disabled={takeMut.isPending}
-                          onClick={() => takeMut.mutate(s.id)}
+                          onClick={() => {
+                            const pre = hasMyOverlapFor(s.id);
+                            if (pre.conflict) {
+                              toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
+                              return;
+                            }
+                            takeMut.mutate(s.id);
+                          }}
                         >
                           {takeMut.isPending ? "Taking…" : "Sign up"}
                         </Button>
