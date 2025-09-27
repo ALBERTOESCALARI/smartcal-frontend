@@ -451,7 +451,9 @@ export default function AvailabilityPage() {
 
   const proposedAvailabilities = React.useMemo(() => {
     if (!isAdmin) return [] as Availability[];
-    return [...availabilities].filter((item) => item.status === "proposed").sort((a, b) => {
+    return [...availabilities]
+      .filter((item) => String(item.status || "").toLowerCase() === "proposed")
+      .sort((a, b) => {
       return new Date(a.start_ts).getTime() - new Date(b.start_ts).getTime();
     });
   }, [availabilities, isAdmin]);
