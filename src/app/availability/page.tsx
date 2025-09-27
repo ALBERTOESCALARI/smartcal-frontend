@@ -453,18 +453,8 @@ export default function AvailabilityPage() {
     if (!isAdmin) return [] as Availability[];
     return [...availabilities]
       .filter((item) => String(item.status || "").toLowerCase() === "proposed")
-      .sort((a, b) => {
-      return new Date(a.start_ts).getTime() - new Date(b.start_ts).getTime();
-    });
+      .sort((a, b) => new Date(a.start_ts).getTime() - new Date(b.start_ts).getTime());
   }, [availabilities, isAdmin]);
-
-  function saveTenant(next: string) {
-    setTenantId(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("tenant_id", next);
-    }
-    queryClient.invalidateQueries({ queryKey: ["availability"] });
-  }
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -560,6 +550,224 @@ export default function AvailabilityPage() {
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
+
+  const adminPanels = React.useMemo(() => {
+    if (!isAdmin) return null;
+    const approveVariables = approveMut.variables as { availability?: Availability } | undefined;
+    return (
+      <>
+        <Card className="p-4 space-y-3">
+          <div className="text-sm font-semibold">Pending availability</div>
+          <div className="text-xs text-muted-foreground">
+            Review proposed slots from team members and approve them into the schedule.
+          </div>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {proposedAvailabilities.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No proposed availability at the moment.</div>
+            ) : (
+              proposedAvailabilities.map((item) => {
+                const userName = extractUserName(usersById[item.user_id]) ?? item.user_id;
+                const selectedUnitId = unitSelections[item.id] || defaultUnitId;
+                const isApproveBusy = approveMut.isPending && approveVariables?.availability?.id === item.id;
+                const busy = approveMut.isPending || denyMut.isPending || cancelMut.isPending;
+                const accent = STATUS_COLORS[item.status];
+                const bgTint = `${accent}1A`;
+                const borderTint = `${accent}66`;
+                return (
+                  <Card
+                    key={`pending-${item.id}`}
+                    className="p-3 border"
+                    style={{ borderColor: borderTint, background: bgTint }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">{userName}</span>
+                      <span className="text-xs" style={{ color: STATUS_COLORS[item.status] }}>Proposed</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {new Date(item.start_ts).toLocaleString()} → {new Date(item.end_ts).toLocaleString()}
+                    </div>
+                    <div className="mt-2">
+                      <label className="text-xs font-medium">
+                        Assign unit
+                        <select
+                          value={selectedUnitId}
+                          onChange={(e) => setUnitSelections((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                          className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          disabled={units.length === 0}
+                        >
+                          {units.length === 0 ? (
+                            <option value="">No units available</option>
+                          ) : (
+                            units.map((unit) => (
+                              <option key={unit.id} value={unit.id}>
+                                {unit.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </label>
+                    </div>
+                    {item.notes ? (
+                      <div className="text-xs mt-2 bg-muted/40 rounded p-2">{item.notes}</div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          const unitId = unitSelections[item.id] || defaultUnitId;
+                          if (!unitId) {
+                            alert("Select a unit before approving");
+                            return;
+                          }
+                          approveMut.mutate({ availability: item, unitId });
+                        }}
+                        disabled={busy || units.length === 0}
+                      >
+                        {isApproveBusy ? "Approving…" : "Approve"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => denyMut.mutate(item.id)}
+                        disabled={busy}
+                      >
+                        {denyMut.isPending && denyMut.variables === item.id ? "Denying…" : "Deny"}
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-4 space-y-2">
+          <div className="text-sm font-semibold">Availability review</div>
+          <div className="text-xs text-muted-foreground">
+            Members submit their availability here. Approve proposed slots below to place them on the schedule.
+          </div>
+        </Card>
+      </>
+    );
+  }, [isAdmin, proposedAvailabilities, usersById, unitSelections, defaultUnitId, units, approveMut.isPending, approveMut.variables, denyMut.isPending, cancelMut.isPending]);
+
+  const memberPanel = !isAdmin ? (
+    <Card className="p-4 space-y-3">
+      <div className="text-sm font-semibold">Submit availability</div>
+      <div className="text-xs text-muted-foreground">
+        Pick a date and specify your preferred time window. Slots start as <strong>Proposed</strong> until an administrator reviews them.
+      </div>
+      <div className="space-y-3">
+        <label className="text-sm font-medium flex flex-col gap-1">
+          Start
+          <Input
+            type="datetime-local"
+            value={formStart}
+            onChange={(e) => {
+              setTemplate("");
+              setFormStart(e.target.value);
+            }}
+            min="1970-01-01T00:00"
+          />
+        </label>
+        <label className="text-sm font-medium flex flex-col gap-1">
+          End
+          <Input
+            type="datetime-local"
+            value={formEnd}
+            onChange={(e) => {
+              setTemplate("");
+              setFormEnd(e.target.value);
+            }}
+            min={formStart}
+          />
+        </label>
+        <label className="text-sm font-medium flex flex-col gap-1">
+          Template (optional)
+          <select
+            value={template}
+            onChange={(e) => {
+              const val = e.target.value;
+              setTemplate(val);
+              if (!val) return;
+              const reference = selectedDate ?? new Date();
+              const applied = applyTemplate(val, reference);
+              if (applied) {
+                setFormStart(applied.start);
+                setFormEnd(applied.end);
+                setDurationHrs(applied.durationHours);
+              }
+            }}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            {TEMPLATE_OPTIONS.map((opt) => (
+              <option key={opt.value || "_none"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm font-medium flex flex-col gap-1">
+          Duration (hours)
+          <Input
+            type="number"
+            min={1}
+            max={24}
+            value={durationHrs}
+            onChange={(e) => {
+              setTemplate("");
+              const val = Number(e.target.value || 1);
+              setDurationHrs(Math.max(1, Math.min(24, Math.round(val))));
+            }}
+          />
+        </label>
+        <label className="text-sm font-medium flex flex-col gap-1">
+          Notes (optional)
+          <textarea
+            value={formNotes}
+            onChange={(e) => setFormNotes(e.target.value)}
+            rows={3}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            placeholder="Any additional details"
+          />
+        </label>
+        {formMsg ? (
+          <div className="text-xs" style={{ color: formMsg.toLowerCase().includes("failed") ? "#dc2626" : "#16a34a" }}>
+            {formMsg}
+          </div>
+        ) : null}
+        <Button
+          type="button"
+          onClick={() => {
+            if (!tenantId) {
+              alert("Set a tenant first");
+              return;
+            }
+            createMut.mutate();
+          }}
+          disabled={createMut.isPending || !tenantId}
+        >
+          {createMut.isPending ? "Submitting…" : "Submit availability"}
+        </Button>
+        {multiDayMode && selectedDates.length > 0 ? (
+          <div className="text-xs text-muted-foreground">
+            Multi-day mode will create one slot per selected day using the start/end times above.
+          </div>
+        ) : null}
+      </div>
+    </Card>
+  ) : null;
+  const reviewSection = isAdmin ? adminPanels : memberPanel;
+
+  function saveTenant(next: string) {
+    setTenantId(next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tenant_id", next);
+    }
+    queryClient.invalidateQueries({ queryKey: ["availability"] });
+  }
 
   if (!mounted) return <div />;
 
@@ -755,210 +963,9 @@ export default function AvailabilityPage() {
                 )}
               </div>
             </Card>
+          ) : null}
 
-            {isAdmin ? (
-              <Card className="p-4 space-y-3">
-                <div className="text-sm font-semibold">Pending availability</div>
-                <div className="text-xs text-muted-foreground">
-                  Review proposed slots from team members and approve them into the schedule.
-                </div>
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {proposedAvailabilities.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No proposed availability at the moment.</div>
-                  ) : (
-                    proposedAvailabilities.map((item) => {
-                      const userName = extractUserName(usersById[item.user_id]) ?? item.user_id;
-                      const selectedUnitId = unitSelections[item.id] || defaultUnitId;
-                      const isApproveBusy = approveMut.isPending && (approveMut.variables as { availability?: Availability } | undefined)?.availability?.id === item.id;
-                      const busy = approveMut.isPending || denyMut.isPending || cancelMut.isPending;
-                      const accent = STATUS_COLORS[item.status];
-                      const bgTint = `${accent}1A`;
-                      const borderTint = `${accent}66`;
-                      return (
-                        <Card
-                          key={`pending-${item.id}`}
-                          className="p-3 border"
-                          style={{ borderColor: borderTint, background: bgTint }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm">{userName}</span>
-                            <span className="text-xs" style={{ color: STATUS_COLORS[item.status] }}>Proposed</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {new Date(item.start_ts).toLocaleString()} → {new Date(item.end_ts).toLocaleString()}
-                          </div>
-                          <div className="mt-2">
-                            <label className="text-xs font-medium">
-                              Assign unit
-                              <select
-                                value={selectedUnitId}
-                                onChange={(e) => setUnitSelections((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                                disabled={units.length === 0}
-                              >
-                                {units.length === 0 ? (
-                                  <option value="">No units available</option>
-                                ) : (
-                                  units.map((unit) => (
-                                    <option key={unit.id} value={unit.id}>
-                                      {unit.name}
-                                    </option>
-                                  ))
-                                )}
-                              </select>
-                            </label>
-                          </div>
-                          {item.notes ? (
-                            <div className="text-xs mt-2 bg-muted/40 rounded p-2">{item.notes}</div>
-                          ) : null}
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => {
-                                const unitId = unitSelections[item.id] || defaultUnitId;
-                                if (!unitId) {
-                                  alert("Select a unit before approving");
-                                  return;
-                                }
-                                approveMut.mutate({ availability: item, unitId });
-                              }}
-                              disabled={busy || units.length === 0}
-                            >
-                              {isApproveBusy ? "Approving…" : "Approve"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => denyMut.mutate(item.id)}
-                              disabled={busy}
-                            >
-                              {denyMut.isPending && denyMut.variables === item.id ? "Denying…" : "Deny"}
-                            </Button>
-                          </div>
-                        </Card>
-                      );
-                    })
-                  )}
-                </div>
-              </Card>
-            ) : null}
-
-            {!isAdmin ? (
-              <Card className="p-4 space-y-3">
-              <div className="text-sm font-semibold">Submit availability</div>
-              <div className="text-xs text-muted-foreground">
-                Pick a date and specify your preferred time window. Slots start as <strong>Proposed</strong> until an administrator reviews them.
-              </div>
-              <div className="space-y-3">
-                <label className="text-sm font-medium flex flex-col gap-1">
-                  Start
-                  <Input
-                    type="datetime-local"
-                    value={formStart}
-                    onChange={(e) => {
-                      setTemplate("");
-                      setFormStart(e.target.value);
-                    }}
-                    min="1970-01-01T00:00"
-                  />
-                </label>
-                <label className="text-sm font-medium flex flex-col gap-1">
-                  End
-                  <Input
-                    type="datetime-local"
-                    value={formEnd}
-                    onChange={(e) => {
-                      setTemplate("");
-                      setFormEnd(e.target.value);
-                    }}
-                    min={formStart}
-                  />
-                </label>
-                <label className="text-sm font-medium flex flex-col gap-1">
-                  Template (optional)
-                  <select
-                    value={template}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTemplate(val);
-                      if (!val) return;
-                      const reference = selectedDate ?? new Date();
-                      const applied = applyTemplate(val, reference);
-                      if (applied) {
-                        setFormStart(applied.start);
-                        setFormEnd(applied.end);
-                        setDurationHrs(applied.durationHours);
-                      }
-                    }}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    {TEMPLATE_OPTIONS.map((opt) => (
-                      <option key={opt.value || "_none"} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm font-medium flex flex-col gap-1">
-                  Duration (hours)
-                  <Input
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={durationHrs}
-                    onChange={(e) => {
-                      setTemplate("");
-                      const val = Number(e.target.value || 1);
-                      setDurationHrs(Math.max(1, Math.min(24, Math.round(val))));
-                    }}
-                  />
-                </label>
-                <label className="text-sm font-medium flex flex-col gap-1">
-                  Notes (optional)
-                  <textarea
-                    value={formNotes}
-                    onChange={(e) => setFormNotes(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    placeholder="Any additional details"
-                  />
-                </label>
-                {formMsg ? (
-                  <div className="text-xs" style={{ color: formMsg.toLowerCase().includes("failed") ? "#dc2626" : "#16a34a" }}>
-                    {formMsg}
-                  </div>
-                ) : null}
-                <Button
-                  type="button"
-                  onClick={() => {
-                    if (!tenantId) {
-                      alert("Set a tenant first");
-                      return;
-                    }
-                    createMut.mutate();
-                  }}
-                  disabled={createMut.isPending || !tenantId}
-                >
-                  {createMut.isPending ? "Submitting…" : "Submit availability"}
-                </Button>
-                {multiDayMode && selectedDates.length > 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    Multi-day mode will create one slot per selected day using the start/end times above.
-                  </div>
-                ) : null}
-              </div>
-              </Card>
-            ) : null}
-            ) : (
-              <Card className="p-4 space-y-2">
-                <div className="text-sm font-semibold">Availability review</div>
-                <div className="text-xs text-muted-foreground">
-                  Members submit their availability here. Approve proposed slots below to place them on the schedule.
-                </div>
-              </Card>
-            )}
+            {reviewSection}
           </div>
         </div>
       </div>
