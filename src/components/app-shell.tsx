@@ -18,7 +18,6 @@ type NavItem = { href: string; label: string; role?: "admin" | "member" | "all" 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", role: "all" },
   { href: "/shifts", label: "Calendar", role: "all" },
-  { href: "/availability", label: "Availability", role: "all" },
   { href: "/requests/pto", label: "PTO Requests", role: "all" },
   { href: "/requests/swaps", label: "Shift Swaps", role: "all" },
   { href: "/hours", label: "Hours", role: "all" },
