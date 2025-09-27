@@ -606,40 +606,43 @@ export default function AvailabilityPage() {
           </Card>
 
           <div className="space-y-6">
-            <Card className="p-4 space-y-3">
+            {!isAdmin ? (
+              <Card className="p-4 space-y-3">
               <div className="text-sm font-semibold">Selected day</div>
               <div className="text-sm text-muted-foreground">
                 {selectedDate ? selectedDate.toLocaleDateString(undefined, { dateStyle: "full" }) : "Pick a day"}
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={multiDayMode}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
-                      setMultiDayMode(enabled);
-                      if (!enabled && selectedDate) {
-                        setSelectedDates([startOfDay(selectedDate)]);
-                      }
-                    }}
-                  />
-                  Multi-day select
-                </label>
-                <span>{selectedDates.length} day(s) selected</span>
-                {multiDayMode && selectedDates.length > 0 ? (
-                  <button
-                    type="button"
-                    className="underline"
-                    onClick={() => {
-                      setSelectedDates([]);
-                      setSelectedDate(null);
-                    }}
-                  >
-                    Clear
-                  </button>
-                ) : null}
-              </div>
+              {!isAdmin ? (
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={multiDayMode}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        setMultiDayMode(enabled);
+                        if (!enabled && selectedDate) {
+                          setSelectedDates([startOfDay(selectedDate)]);
+                        }
+                      }}
+                    />
+                    Multi-day select
+                  </label>
+                  <span>{selectedDates.length} day(s) selected</span>
+                  {multiDayMode && selectedDates.length > 0 ? (
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        setSelectedDates([]);
+                        setSelectedDate(null);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {isAdmin && units.length === 0 ? (
                 <div className="text-xs text-amber-600">
                   No units found for this tenant. Create a unit before approving availability.
@@ -945,7 +948,15 @@ export default function AvailabilityPage() {
                   </div>
                 ) : null}
               </div>
-            </Card>
+              </Card>
+            ) : (
+              <Card className="p-4 space-y-2">
+                <div className="text-sm font-semibold">Availability review</div>
+                <div className="text-xs text-muted-foreground">
+                  Members submit their availability here. Approve proposed slots below to place them on the schedule.
+                </div>
+              </Card>
+            )}
           </div>
         </div>
       </div>
