@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -31,7 +32,17 @@ export default function RootLayout({
       >
         <ToastProviderWithViewport>
           <Providers>
-            <AppShell>{children}</AppShell>
+            <AppShell>
+              {children}
+            </AppShell>
+            <div className="fixed bottom-4 right-4 z-40">
+              <a
+                href="/clock"
+                className="inline-flex items-center rounded-full bg-emerald-600 px-4 py-2 text-white shadow-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                Clock In/Out
+              </a>
+            </div>
           </Providers>
         </ToastProviderWithViewport>
       </body>

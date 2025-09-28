@@ -228,3 +228,23 @@ export function isAuthed(): boolean {
   if (typeof window === "undefined") return false;
   return !!loadToken();
 }
+
+// ===================== Time entries API =====================
+export async function clockIn(shiftId: string, location?: string) {
+  const res = await api.post("/time/clock-in", { shift_id: shiftId, location });
+  return res.data;
+}
+
+export async function clockOut(earnings?: number, location?: string) {
+  const res = await api.patch("/time/clock-out", { earnings, location });
+  return res.data;
+}
+
+export async function listMyTimeEntries(from?: string, to?: string) {
+  const params: Record<string, string> = {};
+  if (from) params.start = from;
+  if (to) params.end = to;
+
+  const res = await api.get("/time/me", { params });
+  return res.data;
+}
