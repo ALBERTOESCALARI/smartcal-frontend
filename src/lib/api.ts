@@ -50,6 +50,7 @@ function notifyForbidden(message: string) {
 export const api = axios.create({
   baseURL: getApiBase(),
   timeout: 15000,
+  headers: { Accept: "application/json" },
 });
 
 api.interceptors.request.use((config) => {
@@ -67,7 +68,12 @@ api.interceptors.request.use((config) => {
       const actAsTenantId = sessionStorage.getItem("act_as_tenant_id");
       const tenantId = actAsTenantId || localStorage.getItem("tenant_id");
       if (tenantId) {
+        // send both query param (for convenience) and header (for backend auth)
         config.params = { ...(config.params || {}), tenant_id: tenantId };
+        config.headers = {
+          ...(config.headers || {}),
+          "X-Tenant-ID": tenantId,
+        } as any;
       }
     }
   }
@@ -96,6 +102,11 @@ if (smartWindow && !smartWindow.__smartcal_auth_interceptor_added) {
           // Clear only session auth; KEEP tenant_id
           localStorage.removeItem("token");
           sessionStorage.clear();
+        } catch {}
+
+        // Notify app to reset UI/cache ASAP
+        try {
+          window.dispatchEvent(new Event("auth:logout"));
         } catch {}
 
         // Redirect to login with reason
