@@ -230,8 +230,26 @@ export function isAuthed(): boolean {
 }
 
 // ===================== Time entries API =====================
-export async function clockIn(shiftId: string, location?: string) {
-  const res = await api.post("/time/clock-in", { shift_id: shiftId, location });
+function resolveTenantId(): string | null {
+  if (typeof window === "undefined") return getActiveTenantId();
+  try {
+    const actAs = sessionStorage.getItem("act_as_tenant_id");
+    if (actAs) return actAs;
+  } catch {}
+  return getActiveTenantId();
+}
+
+export async function clockIn(shiftId?: string | null, location?: string) {
+  const tenantId = resolveTenantId();
+  if (!tenantId) {
+    throw new Error("Cannot clock in without an active tenant.");
+  }
+
+  const payload: Record<string, unknown> = { tenant_id: tenantId };
+  if (shiftId) payload.shift_id = shiftId;
+  if (location) payload.location = location;
+
+  const res = await api.post("/time/clock-in", payload);
   return res.data;
 }
 
