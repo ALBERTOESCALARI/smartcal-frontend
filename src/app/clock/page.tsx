@@ -26,37 +26,83 @@ export default function ClockPage() {
     setHydrated(true);
   }, []);
 
+  // Initial fetch: normalize API -> ClockStatus once we know the user
+  useEffect(() => {
+    if (!sessionUser) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // API returns: { status: "clocked_in" | "clocked_out", open_entry?: { clock_in: string, ... } }
+        const api = (await getClockStatus()) as {
+          status: "clocked_in" | "clocked_out";
+          open_entry?: { clock_in?: string };
+        };
+
+        const mapped: ClockStatus = {
+          clocked_in: api.status === "clocked_in",
+          clock_in: api.open_entry?.clock_in,
+        };
+
+        if (!cancelled) setStatus(mapped);
+      } catch (err) {
+        console.error("Failed to fetch clock status", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser]);
+
+  // Poll status so the banner flips quickly after clock in/out
+  useEffect(() => {
+    if (!sessionUser) return;
+
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const api = (await getClockStatus()) as {
+          status: "clocked_in" | "clocked_out";
+          open_entry?: { clock_in?: string };
+        };
+        const mapped: ClockStatus = {
+          clocked_in: api.status === "clocked_in",
+          clock_in: api.open_entry?.clock_in,
+        };
+        if (!cancelled) setStatus(mapped);
+      } catch {
+        /* keep last known state */
+      }
+    };
+
+    // fast for first 15s, then 3s
+    const fastId = setInterval(tick, 1000);
+    const slowTimer = setTimeout(() => {
+      clearInterval(fastId);
+      const slowId = setInterval(tick, 3000);
+      (window as any).__clockSlow = slowId;
+    }, 15000);
+
+    // kick once immediately
+    void tick();
+
+    return () => {
+      cancelled = true;
+      clearInterval(fastId);
+      clearTimeout(slowTimer);
+      const slowId = (window as any).__clockSlow;
+      if (slowId) clearInterval(slowId);
+    };
+  }, [sessionUser]);
+
   // Derive the start timestamp (ms) from status
   const startMs = useMemo(() => {
     if (!status?.clocked_in || !status.clock_in) return null;
     const t = Date.parse(status.clock_in);
     return Number.isNaN(t) ? null : t;
   }, [status]);
-
-  // Fetch clock status once we know the user
-  // Fetch clock status once we know the user
-useEffect(() => {
-  if (!sessionUser) return;
-  let cancelled = false;
-
-  (async () => {
-    try {
-      // API returns: { status: "clocked_in" | "clocked_out", open_entry?: { clock_in: string, ... } }
-      const api = await getClockStatus() as { status: "clocked_in" | "clocked_out"; open_entry?: { clock_in?: string } };
-
-      const mapped: ClockStatus = {
-        clocked_in: api.status === "clocked_in",
-        clock_in: api.open_entry?.clock_in,
-      };
-
-      if (!cancelled) setStatus(mapped);
-    } catch (err) {
-      console.error("Failed to fetch clock status", err);
-    }
-  })();
-
-  return () => { cancelled = true; };
-}, [sessionUser]);
 
   // Live ticking timer while clocked in
   useEffect(() => {
@@ -100,12 +146,15 @@ useEffect(() => {
           {hydrated && canRenderControls ? (
             <>
               {status ? (
-                status.clocked_in ? (
-                  <p className="font-medium text-green-600">
-                    ✅ You are clocked in — elapsed: {elapsed}
-                  </p>
-                ) : (
-                  <p className="font-medium text-red-600">⏸ You are clocked out</p>
+               status.clocked_in ?(
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-green-600">✅ You are clocked in</p>
+                    <p className="text-sm font-mono text-slate-700">
+                      {elapsed || "00:00:00"}
+                    </p>
+                  </div>
+                ) : ( 
+                     <p className="font-medium text-slate-600">⏸ You are clocked out</p>
                 )
               ) : (
                 <p className="text-slate-500">Loading status…</p>
