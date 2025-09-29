@@ -1,4 +1,6 @@
 import axios, { type AxiosError } from "axios";
+import type { BrowserLocationReading } from "./location";
+import { locationToPayload } from "./location";
 
 function getApiBase(): string {
   const envBase =
@@ -243,7 +245,10 @@ function resolveTenantId(): string | null {
   return getActiveTenantId();
 }
 
-export async function clockIn(shiftId?: string | null, location?: string) {
+export async function clockIn(
+  shiftId?: string | null,
+  location?: BrowserLocationReading | string
+) {
   const tenantId = resolveTenantId();
   if (!tenantId) {
     throw new Error("Cannot clock in without an active tenant.");
@@ -251,14 +256,47 @@ export async function clockIn(shiftId?: string | null, location?: string) {
 
   const payload: Record<string, unknown> = { tenant_id: tenantId };
   if (shiftId) payload.shift_id = shiftId;
-  if (location) payload.location = location;
+  const normalizedLocation = locationToPayload(location);
+  if (normalizedLocation) {
+    payload.location = normalizedLocation.location;
+    if (typeof normalizedLocation.latitude === "number") {
+      payload.location_latitude = normalizedLocation.latitude;
+      payload.latitude = normalizedLocation.latitude;
+    }
+    if (typeof normalizedLocation.longitude === "number") {
+      payload.location_longitude = normalizedLocation.longitude;
+      payload.longitude = normalizedLocation.longitude;
+    }
+    if (typeof normalizedLocation.accuracy === "number") {
+      payload.location_accuracy = normalizedLocation.accuracy;
+    }
+  }
 
   const res = await api.post("/time/clock-in", payload);
   return res.data;
 }
 
-export async function clockOut(earnings?: number, location?: string) {
-  const res = await api.patch("/time/clock-out", { earnings, location });
+export async function clockOut(
+  earnings?: number,
+  location?: BrowserLocationReading | string
+) {
+  const normalizedLocation = locationToPayload(location);
+  const payload: Record<string, unknown> = { earnings };
+
+  if (normalizedLocation) {
+    payload.location = normalizedLocation.location;
+    if (typeof normalizedLocation.latitude === "number") {
+      payload.location_latitude = normalizedLocation.latitude;
+    }
+    if (typeof normalizedLocation.longitude === "number") {
+      payload.location_longitude = normalizedLocation.longitude;
+    }
+    if (typeof normalizedLocation.accuracy === "number") {
+      payload.location_accuracy = normalizedLocation.accuracy;
+    }
+  }
+
+  const res = await api.patch("/time/clock-out", payload);
   return res.data;
 }
 
