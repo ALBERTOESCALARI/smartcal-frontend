@@ -13,6 +13,7 @@ const nextConfig = {
       { source: '/users/:path*', destination: `${API}/users/:path*` },
       { source: '/units/:path*', destination: `${API}/units/:path*` },
       { source: '/shifts/:path*', destination: `${API}/shifts/:path*` },
+      { source: '/time/:path*', destination: `${API}/time/:path*` },
       { source: '/pto/:path*', destination: `${API}/pto/:path*` },
       { source: '/swaps/:path*', destination: `${API}/swaps/:path*` },
     ];
