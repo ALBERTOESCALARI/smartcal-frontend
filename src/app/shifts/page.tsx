@@ -2,6 +2,7 @@
 "use client";
 
 import RequireAuth from "@/components/require-auth";
+import ClockControls from "@/components/time/clock-controls";
 import { Button } from "@/components/ui/button";
 import { Calendar, type DayShift } from "@/components/ui/calendar";
 import { Card } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { createShift, fetchShifts, getShift, updateShift, type Shift } from "@/features/shifts/api";
 import { fetchUnits, type Unit } from "@/features/units/api";
-import { api, clockIn, clockOut } from "@/lib/api";
+import { api } from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -850,37 +851,13 @@ const identity = identityParts.join(" • ");
           <div className="opacity-60">
             ID: <code>{viewQ.data.id}</code>
           </div>
-          <div className="pt-2 flex items-center gap-2">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={async () => {
-                try {
-                  await clockIn(viewQ.data!.id);
-                  toast({ title: "Clocked in", description: `Shift ${viewQ.data!.id.slice(0,8)}…` });
-                } catch (e) {
-                  const msg = getErrMsg(e);
-                  toast({ title: "Clock-in failed", description: msg });
-                }
-              }}
-            >
-              Clock In
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                try {
-                  await clockOut();
-                  toast({ title: "Clocked out" });
-                } catch (e) {
-                  const msg = getErrMsg(e);
-                  toast({ title: "Clock-out failed", description: msg });
-                }
-              }}
-            >
-              Clock Out
-            </Button>
+          <div className="pt-2">
+            <ClockControls
+              currentUserId={currentUserId}
+              currentUserRole={currentRole as any}
+              shiftId={viewQ.data.id}
+              assignedUserId={viewQ.data.user_id || null}
+            />
           </div>
         </div>
       );
