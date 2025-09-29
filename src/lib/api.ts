@@ -230,6 +230,10 @@ export function isAuthed(): boolean {
 }
 
 // ===================== Time entries API =====================
+export async function getClockStatus() {
+  const res = await api.get("/time/clock");
+  return res.data as { status: "clocked_in" | "clocked_out"; open_entry?: any };
+}
 function resolveTenantId(): string | null {
   if (typeof window === "undefined") return getActiveTenantId();
   try {
