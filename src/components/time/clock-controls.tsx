@@ -8,7 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * ClockControls
- * - Allows any authenticated user to clock in/out for the active tenant
+ * - Admin/Scheduler users can clock in/out regardless of shift selection
+ * - Members must have an assigned shift to clock in/out
  */
 
 type Role = "admin" | "scheduler" | "member" | (string & {});
@@ -28,18 +29,38 @@ export interface ClockControlsProps {
   currentUserRole?: Role;
   /** Optional shift the clock event is associated with */
   shiftId?: string;
-  /** Legacy assignment context (ignored by clock logic) */
+  /** The user currently assigned to this shift (if any) */
   assignedUserId?: string | null;
   className?: string;
 }
 
-export default function ClockControls({ shiftId, className }: ClockControlsProps) {
+export default function ClockControls({
+  currentUserId,
+  currentUserRole,
+  shiftId,
+  assignedUserId,
+  className,
+}: ClockControlsProps) {
   const [status, setStatus] = useState<"idle" | "working">("idle");
   const [initializing, setInitializing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
   const { toast } = useToast();
+
+  const adminLike = useMemo(
+    () => ["admin", "scheduler"].includes((currentUserRole || "").toString().toLowerCase()),
+    [currentUserRole]
+  );
+
+  const assignedToShift = useMemo(() => {
+    if (!shiftId) return false;
+    if (!assignedUserId) return false;
+    return String(assignedUserId) === String(currentUserId);
+  }, [shiftId, assignedUserId, currentUserId]);
+
+  const shiftRequired = !adminLike;
+  const canActOnShift = adminLike || assignedToShift;
 
   const formatter = useMemo(
     () =>
@@ -154,9 +175,16 @@ export default function ClockControls({ shiftId, className }: ClockControlsProps
       setLoading(true);
       setError(null);
 
+      if (shiftRequired && !shiftId) {
+        throw new Error("A shift must be selected before clocking in.");
+      }
+      if (!canActOnShift) {
+        throw new Error("You are not assigned to this shift.");
+      }
+
       const location = await requireBrowserLocation();
 
-      await clockIn(shiftId, location);
+      await clockIn({ shiftId: adminLike ? undefined : shiftId, location });
       const when = new Date();
       setStatus("working");
       setLastEvent({ type: "clock-in", when, location: location.formatted });
@@ -180,6 +208,13 @@ export default function ClockControls({ shiftId, className }: ClockControlsProps
     try {
       setLoading(true);
       setError(null);
+
+      if (shiftRequired && !shiftId) {
+        throw new Error("A shift must be selected before clocking out.");
+      }
+      if (!canActOnShift) {
+        throw new Error("You are not assigned to this shift.");
+      }
       const location = await requireBrowserLocation();
 
       await clockOut(undefined, location);
@@ -219,7 +254,13 @@ export default function ClockControls({ shiftId, className }: ClockControlsProps
       {status === "idle" ? (
         <button
           onClick={handleClockIn}
-          disabled={loading || initializing}
+          disabled={
+            loading ||
+            initializing ||
+            (shiftRequired && !shiftId) ||
+            !canActOnShift
+          }
+          title={!canActOnShift ? "You are not assigned to this shift" : shiftRequired && !shiftId ? "Select a shift to clock in" : undefined}
           className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
         >
           {loading ? "Clocking in..." : "Clock In"}

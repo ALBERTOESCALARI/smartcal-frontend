@@ -416,8 +416,10 @@ export async function clockIn(
   const locationPayload = normalizeLocationPayload(opts.location);
   const body: Record<string, unknown> = {
     tenant_id: tenantId,
-    shift_id: opts.shiftId ?? null,
   };
+  if (typeof opts.shiftId === "string" && opts.shiftId) {
+    body.shift_id = opts.shiftId;
+  }
   if (locationPayload) {
     body.location = locationPayload.location ?? null;
     if (typeof locationPayload.latitude === "number") {
