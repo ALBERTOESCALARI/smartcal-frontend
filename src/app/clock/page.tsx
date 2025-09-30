@@ -3,9 +3,10 @@
 import RequireAuth from "@/components/require-auth";
 import ClockControls from "@/components/time/clock-controls";
 import { Card } from "@/components/ui/card";
-import { getClockStatus } from "@/lib/api"; // must exist in api.ts
+import { getClockStatus, getActiveTenantId } from "@/lib/api"; // must exist in api.ts
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
+import { fetchShifts, type Shift } from "@/features/shifts/api";
 
 interface ClockStatus {
   clocked_in: boolean;
@@ -26,6 +27,7 @@ export default function ClockPage() {
 
   const [status, setStatus] = useState<ClockStatus | null>(null);
   const [elapsed, setElapsed] = useState<string>("");
+  const [activeShift, setActiveShift] = useState<Shift | null>(null);
 
   // Load session user once on mount
   useEffect(() => {
@@ -56,6 +58,44 @@ export default function ClockPage() {
       cancelled = true;
     };
   }, [sessionUser]);
+
+  // Discover currently active shift (if any) for the logged in user
+  useEffect(() => {
+    if (!sessionUser?.id) {
+      setActiveShift(null);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const loadActiveShift = async () => {
+      try {
+        const tenantId = getActiveTenantId();
+        if (!tenantId) return;
+        const shifts = await fetchShifts(tenantId, { user_id: sessionUser.id });
+        const now = Date.now();
+        const current = shifts.find((shift) => {
+          const start = Date.parse(shift.start_time);
+          const end = Date.parse(shift.end_time);
+          if (Number.isNaN(start) || Number.isNaN(end)) return false;
+          return start <= now && now <= end;
+        });
+        if (!cancelled) setActiveShift(current ?? null);
+      } catch (err) {
+        console.error("Failed to determine active shift", err);
+        if (!cancelled) setActiveShift(null);
+      }
+    };
+
+    void loadActiveShift();
+    timer = window.setInterval(loadActiveShift, 60_000);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [sessionUser?.id, status?.clocked_in]);
 
   // Poll status so the banner flips quickly after clock in/out
   // Poll status so the banner flips quickly after clock in/out
@@ -161,6 +201,8 @@ export default function ClockPage() {
               <ClockControls
                 currentUserId={sessionUser!.id}
                 currentUserRole={sessionUser!.role}
+                shiftId={activeShift?.id}
+                assignedUserId={activeShift?.user_id ?? null}
                 className="w-full"
               />
             </>
