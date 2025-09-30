@@ -3,10 +3,10 @@
 import RequireAuth from "@/components/require-auth";
 import ClockControls from "@/components/time/clock-controls";
 import { Card } from "@/components/ui/card";
-import { getClockStatus, getActiveTenantId } from "@/lib/api"; // must exist in api.ts
+import { fetchShifts, type Shift } from "@/features/shifts/api";
+import { getActiveTenantId, getClockStatus } from "@/lib/api"; // must exist in api.ts
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
-import { fetchShifts, type Shift } from "@/features/shifts/api";
 
 interface ClockStatus {
   clocked_in: boolean;
