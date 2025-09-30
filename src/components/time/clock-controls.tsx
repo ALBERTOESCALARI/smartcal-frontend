@@ -8,8 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * ClockControls
- * - Admin/Scheduler: can always clock in (shift optional depending on backend policy)
- * - Member: must be assigned to the provided shiftId
+ * - Allows any authenticated user to clock in/out for the active tenant
  */
 
 type Role = "admin" | "scheduler" | "member" | (string & {});
@@ -27,40 +26,20 @@ export interface ClockControlsProps {
   currentUserId: string;
   /** Authenticated user's role */
   currentUserRole?: Role;
-  /** The shift being acted upon */
-  shiftId?: string; // required for members
-  /** The user currently assigned to this shift (if any) */
+  /** Optional shift the clock event is associated with */
+  shiftId?: string;
+  /** Legacy assignment context (ignored by clock logic) */
   assignedUserId?: string | null;
   className?: string;
 }
 
-export default function ClockControls({
-  currentUserId,
-  currentUserRole,
-  shiftId,
-  assignedUserId,
-  className,
-}: ClockControlsProps) {
+export default function ClockControls({ shiftId, className }: ClockControlsProps) {
   const [status, setStatus] = useState<"idle" | "working">("idle");
   const [initializing, setInitializing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
   const { toast } = useToast();
-
-  const adminLike = useMemo(
-    () => ["admin", "scheduler"].includes((currentUserRole || "").toString().toLowerCase()),
-    [currentUserRole]
-  );
-
-  // Members can clock in only if a shift exists and they are assigned to it
-  const memberAssigned = useMemo(() => {
-    if (!shiftId) return false;
-    if (!assignedUserId) return false;
-    return String(assignedUserId) === String(currentUserId);
-  }, [shiftId, assignedUserId, currentUserId]);
-
-  const canClockIn = adminLike || memberAssigned;
 
   const formatter = useMemo(
     () =>
@@ -175,11 +154,6 @@ export default function ClockControls({
       setLoading(true);
       setError(null);
 
-      if (!adminLike) {
-        if (!shiftId) throw new Error("No shift selected");
-        if (!memberAssigned) throw new Error("You are not assigned to this shift");
-      }
-
       const location = await requireBrowserLocation();
 
       await clockIn(shiftId, location);
@@ -245,8 +219,7 @@ export default function ClockControls({
       {status === "idle" ? (
         <button
           onClick={handleClockIn}
-          disabled={loading || initializing || !canClockIn}
-          title={!canClockIn ? "You are not assigned to this shift" : undefined}
+          disabled={loading || initializing}
           className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
         >
           {loading ? "Clocking in..." : "Clock In"}

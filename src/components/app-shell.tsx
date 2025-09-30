@@ -116,7 +116,6 @@ export default function AppShell({ children }: AppShellProps) {
   const [tPw, setTPw] = useState("");
   const [tBusy, setTBusy] = useState(false);
   const [tErr, setTErr] = useState<string | null>(null);
-  const [showForgot, setShowForgot] = useState(false);
 
   // Persist tenant_id only once (first time it’s discovered/selected)
   function setTenantIdOnce(id?: string | null) {
@@ -219,7 +218,7 @@ export default function AppShell({ children }: AppShellProps) {
     const ms = 5000; // 5s
 
     // Never show timeout overlay on explicit auth pages
-    if (pathname === "/login" || pathname === "/forgot-password") {
+    if (pathname === "/login") {
       setTimedOut(false);
       return;
     }
@@ -309,7 +308,7 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }, [mounted, authed, handleLogout, router]);
 
-  if (timedOut && pathname !== "/login" && pathname !== "/forgot-password") {
+  if (timedOut && pathname !== "/login") {
     return (
       <div className="min-h-screen w-screen fixed inset-0 z-[9999] flex items-center justify-center bg-gray-100 dark:bg-neutral-950 text-slate-900 dark:text-neutral-100 p-6">
         <div className="flex flex-col items-center gap-6">
@@ -368,111 +367,36 @@ export default function AppShell({ children }: AppShellProps) {
             }}
             className="w-full max-w-sm grid gap-3"
           >
-            {/* Only show sign-in form if not showing forgot password */}
-            {!showForgot && (
-              <>
-                <div className="grid gap-1">
-                  <label htmlFor="to-email" className="text-sm font-medium">Email</label>
-                  <input
-                    id="to-email"
-                    type="email"
-                    value={tEmail}
-                    onChange={(e) => setTEmail(e.target.value)}
-                    required
-                    autoComplete="username"
-                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="you@example.com"
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <label htmlFor="to-pw" className="text-sm font-medium">Password</label>
-                  <input
-                    id="to-pw"
-                    type="password"
-                    value={tPw}
-                    onChange={(e) => setTPw(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="••••••••"
-                  />
-                </div>
-                {tErr ? (
-                  <div className="text-sm text-red-600">{tErr}</div>
-                ) : null}
-                <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
-                  {tBusy ? "Signing in…" : "Sign in"}
-                </Button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowForgot((v) => !v)}
-              className="text-sm text-blue-600 hover:underline cursor-pointer text-center mt-2"
-            >
-              {showForgot ? "Back to sign in" : "Forgot password?"}
-            </button>
-            {showForgot && (
-              <div className="mt-2 w-full max-w-sm grid gap-3 border-t pt-3">
-                <div className="text-sm text-muted-foreground text-center">
-                  Enter your email and we’ll send a reset link.
-                </div>
-                <div className="grid gap-1">
-                  <label htmlFor="to-email-forgot" className="text-sm font-medium">Email</label>
-                  <input
-                    id="to-email-forgot"
-                    type="email"
-                    value={tEmail}
-                    onChange={(e) => setTEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="you@example.com"
-                  />
-                </div>
-                {tErr ? (
-                  <div className="text-sm text-red-600">{tErr}</div>
-                ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  className="font-semibold"
-                  disabled={tBusy}
-                  onClick={async () => {
-                    try {
-                      setTErr(null);
-                      setTBusy(true);
-                      const url = API_BASE ? `${API_BASE}/auth/forgot` : "/auth/forgot";
-                      const resp = await fetch(url, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ email: tEmail.trim() }),
-                        credentials: "include",
-                      });
-                      if (!resp.ok) {
-                        let msg = "Reset request failed";
-                        try {
-                          const data = await resp.json();
-                          msg = data?.detail || msg;
-                        } catch {
-                          const text = await resp.text();
-                          if (text) msg = text;
-                        }
-                        if (resp.status === 404) msg = "Password reset is not enabled on this server.";
-                        throw new Error(msg);
-                      }
-                      toast({ title: "Check your email", description: "If an account exists, a reset link was sent." });
-                    } catch (err: any) {
-                      setTErr(err?.message || "Unable to send reset link");
-                    } finally {
-                      setTBusy(false);
-                    }
-                  }}
-                >
-                  Send reset link
-                </Button>
-              </div>
-            )}
+            <div className="grid gap-1">
+              <label htmlFor="to-email" className="text-sm font-medium">Email</label>
+              <input
+                id="to-email"
+                type="email"
+                value={tEmail}
+                onChange={(e) => setTEmail(e.target.value)}
+                required
+                autoComplete="username"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="grid gap-1">
+              <label htmlFor="to-pw" className="text-sm font-medium">Password</label>
+              <input
+                id="to-pw"
+                type="password"
+                value={tPw}
+                onChange={(e) => setTPw(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                placeholder="••••••••"
+              />
+            </div>
+            {tErr ? <div className="text-sm text-red-600">{tErr}</div> : null}
+            <Button type="submit" size="sm" className="font-semibold" disabled={tBusy}>
+              {tBusy ? "Signing in…" : "Sign in"}
+            </Button>
           </form>
         </div>
       </div>

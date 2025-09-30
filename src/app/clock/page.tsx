@@ -12,6 +12,14 @@ interface ClockStatus {
   clock_in?: string; // ISO datetime string
 }
 
+// helper to map API -> ClockStatus
+function mapApiToClockStatus(api: { status: "clocked_in" | "clocked_out"; open_entry?: { clock_in?: string } }): ClockStatus {
+  return {
+    clocked_in: api.status === "clocked_in",
+    clock_in: api.open_entry?.clock_in,
+  };
+}
+
 export default function ClockPage() {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -33,20 +41,14 @@ export default function ClockPage() {
 
     (async () => {
       try {
-        // API returns: { status: "clocked_in" | "clocked_out", open_entry?: { clock_in: string, ... } }
         const api = (await getClockStatus()) as {
           status: "clocked_in" | "clocked_out";
           open_entry?: { clock_in?: string };
         };
-
-        const mapped: ClockStatus = {
-          clocked_in: api.status === "clocked_in",
-          clock_in: api.open_entry?.clock_in,
-        };
-
-        if (!cancelled) setStatus(mapped);
+        if (!cancelled) setStatus(mapApiToClockStatus(api));
       } catch (err) {
         console.error("Failed to fetch clock status", err);
+        if (!cancelled) setStatus({ clocked_in: false });
       }
     })();
 
@@ -56,10 +58,14 @@ export default function ClockPage() {
   }, [sessionUser]);
 
   // Poll status so the banner flips quickly after clock in/out
+  // Poll status so the banner flips quickly after clock in/out
   useEffect(() => {
     if (!sessionUser) return;
 
     let cancelled = false;
+    let fastId: number | undefined;
+    let slowId: number | undefined;
+    let slowSwitchTimer: number | undefined;
 
     const tick = async () => {
       try {
@@ -67,33 +73,25 @@ export default function ClockPage() {
           status: "clocked_in" | "clocked_out";
           open_entry?: { clock_in?: string };
         };
-        const mapped: ClockStatus = {
-          clocked_in: api.status === "clocked_in",
-          clock_in: api.open_entry?.clock_in,
-        };
-        if (!cancelled) setStatus(mapped);
+        if (!cancelled) setStatus(mapApiToClockStatus(api));
       } catch {
-        /* keep last known state */
+        // keep last known state
       }
     };
 
-    // fast for first 15s, then 3s
-    const fastId = setInterval(tick, 1000);
-    const slowTimer = setTimeout(() => {
-      clearInterval(fastId);
-      const slowId = setInterval(tick, 3000);
-      (window as any).__clockSlow = slowId;
-    }, 15000);
-
-    // kick once immediately
+    // kick once immediately, then fast poll for 15s, then slow poll
     void tick();
+    fastId = window.setInterval(tick, 1000);
+    slowSwitchTimer = window.setTimeout(() => {
+      if (fastId) window.clearInterval(fastId);
+      slowId = window.setInterval(tick, 3000);
+    }, 15000);
 
     return () => {
       cancelled = true;
-      clearInterval(fastId);
-      clearTimeout(slowTimer);
-      const slowId = (window as any).__clockSlow;
-      if (slowId) clearInterval(slowId);
+      if (fastId) window.clearInterval(fastId);
+      if (slowId) window.clearInterval(slowId);
+      if (slowSwitchTimer) window.clearTimeout(slowSwitchTimer);
     };
   }, [sessionUser]);
 
