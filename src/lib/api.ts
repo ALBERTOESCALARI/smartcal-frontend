@@ -32,24 +32,78 @@ export interface ClockStatus {
 
 type LocationInput = LocationPayload | BrowserLocationReading | string | null | undefined;
 
-function normalizeLocationPayload(input: LocationInput): LocationPayload | string | null {
+type NormalizedLocationPayload = {
+  location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  map_url?: string | null;
+  accuracy?: number | null;
+};
+
+function formatLatLng(lat: number | null | undefined, lng: number | null | undefined) {
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat.toFixed(6)},${lng.toFixed(6)}`;
+}
+
+function normalizeLocationPayload(input: LocationInput): NormalizedLocationPayload | null {
   if (!input) return null;
 
-  if (typeof input === "string") return input;
+  if (typeof input === "string") {
+    return { location: input };
+  }
 
   if (typeof input === "object" && "formatted" in input) {
     const reading = input as BrowserLocationReading;
     const lat = Number.isFinite(reading.latitude) ? reading.latitude : null;
     const lng = Number.isFinite(reading.longitude) ? reading.longitude : null;
-    if (lat == null || lng == null) return null;
-    return { lat, lng };
+    const accuracy = Number.isFinite(reading.accuracy ?? NaN) ? reading.accuracy ?? null : null;
+    const location = reading.formatted || formatLatLng(lat, lng);
+    return { location: location ?? null, latitude: lat, longitude: lng, accuracy };
   }
 
-  const payload = input as LocationPayload;
-  const lat = payload.lat ?? (payload as any).latitude ?? null;
-  const lng = payload.lng ?? (payload as any).longitude ?? null;
-  const map = payload.map_url ?? (payload as any).mapUrl ?? null;
-  return { lat, lng, map_url: map };
+  const payload = input as LocationPayload & {
+    location?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    accuracy?: number | null;
+    mapUrl?: string | null;
+    location_accuracy?: number | null;
+    location_latitude?: number | null;
+    location_longitude?: number | null;
+  };
+
+  const rawLat =
+    payload.lat ??
+    payload.latitude ??
+    payload.location_latitude ??
+    (typeof (payload as any).lat === "string" ? Number.parseFloat((payload as any).lat) : undefined);
+  const coercedLat = typeof rawLat === "number" && Number.isFinite(rawLat) ? rawLat : null;
+  const rawLng =
+    payload.lng ??
+    payload.longitude ??
+    payload.location_longitude ??
+    (typeof (payload as any).lng === "string" ? Number.parseFloat((payload as any).lng) : undefined);
+  const coercedLng = typeof rawLng === "number" && Number.isFinite(rawLng) ? rawLng : null;
+  const location =
+    typeof payload.location === "string"
+      ? payload.location
+      : formatLatLng(coercedLat, coercedLng);
+  const mapUrlRaw = payload.map_url ?? payload.mapUrl ?? null;
+  const mapUrl = typeof mapUrlRaw === "string" && mapUrlRaw ? mapUrlRaw : null;
+  const accuracyRaw =
+    payload.accuracy ?? payload.location_accuracy ?? (payload as any).accuracy ?? null;
+  const accuracy = typeof accuracyRaw === "number" && Number.isFinite(accuracyRaw) ? accuracyRaw : null;
+
+  if (!location && coercedLat == null && coercedLng == null && !mapUrl) return null;
+
+  return {
+    location: location ?? null,
+    latitude: coercedLat,
+    longitude: coercedLng,
+    map_url: mapUrl,
+    accuracy,
+  };
 }
 
 function authHeaders(token?: string | null, tenantId?: string | null) {
@@ -363,8 +417,24 @@ export async function clockIn(
   const body: Record<string, unknown> = {
     tenant_id: tenantId,
     shift_id: opts.shiftId ?? null,
-    location: locationPayload ?? null,
   };
+  if (locationPayload) {
+    body.location = locationPayload.location ?? null;
+    if (typeof locationPayload.latitude === "number") {
+      body.latitude = locationPayload.latitude;
+      body.location_latitude = locationPayload.latitude;
+    }
+    if (typeof locationPayload.longitude === "number") {
+      body.longitude = locationPayload.longitude;
+      body.location_longitude = locationPayload.longitude;
+    }
+    if (typeof locationPayload.accuracy === "number") {
+      body.location_accuracy = locationPayload.accuracy;
+    }
+    if (locationPayload.map_url) {
+      body.map_url = locationPayload.map_url;
+    }
+  }
   if (opts.whenISO) body.clock_in = opts.whenISO;
 
   const res = await api.post("/time/clock-in", body, config);
@@ -416,8 +486,24 @@ export async function clockOut(
   const body: Record<string, unknown> = {
     tenant_id: tenantId,
     earnings: opts.earnings ?? null,
-    location: locationPayload ?? null,
   };
+  if (locationPayload) {
+    body.location = locationPayload.location ?? null;
+    if (typeof locationPayload.latitude === "number") {
+      body.latitude = locationPayload.latitude;
+      body.location_latitude = locationPayload.latitude;
+    }
+    if (typeof locationPayload.longitude === "number") {
+      body.longitude = locationPayload.longitude;
+      body.location_longitude = locationPayload.longitude;
+    }
+    if (typeof locationPayload.accuracy === "number") {
+      body.location_accuracy = locationPayload.accuracy;
+    }
+    if (locationPayload.map_url) {
+      body.map_url = locationPayload.map_url;
+    }
+  }
   if (opts.whenISO) body.clock_out = opts.whenISO;
 
   const res = await api.patch("/time/clock-out", body, config);
