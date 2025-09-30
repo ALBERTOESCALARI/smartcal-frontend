@@ -1,6 +1,63 @@
 import axios, { type AxiosError } from "axios";
 import type { BrowserLocationReading } from "./location";
-import { locationToPayload } from "./location";
+
+export type UUID = string;
+
+export interface LocationPayload {
+  lat?: number | null;
+  lng?: number | null;
+  map_url?: string | null;
+}
+
+export interface TimeEntryOut {
+  id: UUID;
+  tenant_id: UUID;
+  user_id: UUID;
+  shift_id?: UUID | null;
+  clock_in: string;
+  clock_out?: string | null;
+  location?: string | LocationPayload | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  map_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  earnings?: number | null;
+}
+
+export interface ClockStatus {
+  status: "clocked_in" | "clocked_out";
+  open_entry?: TimeEntryOut | null;
+}
+
+type LocationInput = LocationPayload | BrowserLocationReading | string | null | undefined;
+
+function normalizeLocationPayload(input: LocationInput): LocationPayload | string | null {
+  if (!input) return null;
+
+  if (typeof input === "string") return input;
+
+  if (typeof input === "object" && "formatted" in input) {
+    const reading = input as BrowserLocationReading;
+    const lat = Number.isFinite(reading.latitude) ? reading.latitude : null;
+    const lng = Number.isFinite(reading.longitude) ? reading.longitude : null;
+    if (lat == null || lng == null) return null;
+    return { lat, lng };
+  }
+
+  const payload = input as LocationPayload;
+  const lat = payload.lat ?? (payload as any).latitude ?? null;
+  const lng = payload.lng ?? (payload as any).longitude ?? null;
+  const map = payload.map_url ?? (payload as any).mapUrl ?? null;
+  return { lat, lng, map_url: map };
+}
+
+function authHeaders(token?: string | null, tenantId?: string | null) {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (tenantId) headers["X-Tenant-ID"] = tenantId;
+  return headers;
+}
 
 function getApiBase(): string {
   const envBase =
@@ -54,6 +111,8 @@ export const api = axios.create({
   timeout: 15000,
   headers: { Accept: "application/json" },
 });
+
+export const apiClient = api;
 
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -232,10 +291,14 @@ export function isAuthed(): boolean {
 }
 
 // ===================== Time entries API =====================
-export async function getClockStatus() {
-  const res = await api.get("/time/clock");
-  return res.data as { status: "clocked_in" | "clocked_out"; open_entry?: any };
+type AuthOverrides = { token?: string | null; tenantId?: string | null };
+
+export async function getClockStatus(overrides?: AuthOverrides): Promise<ClockStatus> {
+  const { config } = buildAuthConfig(overrides);
+  const res = await api.get("/time/clock", config);
+  return res.data as ClockStatus;
 }
+
 function resolveTenantId(): string | null {
   if (typeof window === "undefined") return getActiveTenantId();
   try {
@@ -245,66 +308,245 @@ function resolveTenantId(): string | null {
   return getActiveTenantId();
 }
 
+function buildAuthConfig(overrides?: AuthOverrides) {
+  const token = overrides?.token ?? loadToken();
+  const tenantId = overrides?.tenantId ?? resolveTenantId();
+  const headers = authHeaders(token, tenantId);
+  const config: { headers?: Record<string, string>; params?: Record<string, string | number> } = {};
+  if (Object.keys(headers).length) config.headers = headers;
+  if (tenantId) config.params = { tenant_id: tenantId };
+  return { token: token ?? null, tenantId: tenantId ?? null, config };
+}
+
+type ClockInOptions = AuthOverrides & {
+  shiftId?: UUID | null;
+  location?: LocationInput;
+  whenISO?: string | null;
+};
+
+function isClockInOptions(value: unknown): value is ClockInOptions {
+  if (!value || typeof value !== "object") return false;
+  const probe = value as Record<string, unknown>;
+  return (
+    "token" in probe ||
+    "tenantId" in probe ||
+    "shiftId" in probe ||
+    "location" in probe ||
+    "whenISO" in probe
+  );
+}
+
+function normalizeClockInArgs(
+  arg1?: string | null | ClockInOptions,
+  arg2?: BrowserLocationReading | string
+): ClockInOptions {
+  if (isClockInOptions(arg1)) return arg1;
+  return { shiftId: (arg1 as string | null | undefined) ?? null, location: arg2 };
+}
+
+export async function clockIn(options?: ClockInOptions): Promise<TimeEntryOut>;
 export async function clockIn(
   shiftId?: string | null,
   location?: BrowserLocationReading | string
-) {
-  const tenantId = resolveTenantId();
+): Promise<TimeEntryOut>;
+export async function clockIn(
+  arg1?: string | null | ClockInOptions,
+  arg2?: BrowserLocationReading | string
+): Promise<TimeEntryOut> {
+  const opts = normalizeClockInArgs(arg1, arg2);
+  const { tenantId, config } = buildAuthConfig(opts);
   if (!tenantId) {
     throw new Error("Cannot clock in without an active tenant.");
   }
 
-  const payload: Record<string, unknown> = { tenant_id: tenantId };
-  if (shiftId) payload.shift_id = shiftId;
-  const normalizedLocation = locationToPayload(location);
-  if (normalizedLocation) {
-    payload.location = normalizedLocation.location;
-    if (typeof normalizedLocation.latitude === "number") {
-      payload.location_latitude = normalizedLocation.latitude;
-      payload.latitude = normalizedLocation.latitude;
-    }
-    if (typeof normalizedLocation.longitude === "number") {
-      payload.location_longitude = normalizedLocation.longitude;
-      payload.longitude = normalizedLocation.longitude;
-    }
-    if (typeof normalizedLocation.accuracy === "number") {
-      payload.location_accuracy = normalizedLocation.accuracy;
-    }
-  }
+  const locationPayload = normalizeLocationPayload(opts.location);
+  const body: Record<string, unknown> = {
+    tenant_id: tenantId,
+    shift_id: opts.shiftId ?? null,
+    location: locationPayload ?? null,
+  };
+  if (opts.whenISO) body.clock_in = opts.whenISO;
 
-  const res = await api.post("/time/clock-in", payload);
-  return res.data;
+  const res = await api.post("/time/clock-in", body, config);
+  return res.data as TimeEntryOut;
 }
 
+type ClockOutOptions = AuthOverrides & {
+  location?: LocationInput;
+  earnings?: number | null;
+  whenISO?: string | null;
+};
+
+function isClockOutOptions(value: unknown): value is ClockOutOptions {
+  if (!value || typeof value !== "object") return false;
+  const probe = value as Record<string, unknown>;
+  return (
+    "token" in probe ||
+    "tenantId" in probe ||
+    "location" in probe ||
+    "earnings" in probe ||
+    "whenISO" in probe
+  );
+}
+
+function normalizeClockOutArgs(
+  arg1?: number | ClockOutOptions | null,
+  arg2?: BrowserLocationReading | string
+): ClockOutOptions {
+  if (isClockOutOptions(arg1)) return arg1;
+  return { earnings: (typeof arg1 === "number" ? arg1 : undefined) ?? null, location: arg2 };
+}
+
+export async function clockOut(options?: ClockOutOptions): Promise<TimeEntryOut>;
 export async function clockOut(
   earnings?: number,
   location?: BrowserLocationReading | string
-) {
-  const normalizedLocation = locationToPayload(location);
-  const payload: Record<string, unknown> = { earnings };
-
-  if (normalizedLocation) {
-    payload.location = normalizedLocation.location;
-    if (typeof normalizedLocation.latitude === "number") {
-      payload.location_latitude = normalizedLocation.latitude;
-    }
-    if (typeof normalizedLocation.longitude === "number") {
-      payload.location_longitude = normalizedLocation.longitude;
-    }
-    if (typeof normalizedLocation.accuracy === "number") {
-      payload.location_accuracy = normalizedLocation.accuracy;
-    }
+): Promise<TimeEntryOut>;
+export async function clockOut(
+  arg1?: number | ClockOutOptions | null,
+  arg2?: BrowserLocationReading | string
+): Promise<TimeEntryOut> {
+  const opts = normalizeClockOutArgs(arg1, arg2);
+  const { tenantId, config } = buildAuthConfig(opts);
+  if (!tenantId) {
+    throw new Error("Cannot clock out without an active tenant.");
   }
 
-  const res = await api.patch("/time/clock-out", payload);
-  return res.data;
+  const locationPayload = normalizeLocationPayload(opts.location);
+  const body: Record<string, unknown> = {
+    tenant_id: tenantId,
+    earnings: opts.earnings ?? null,
+    location: locationPayload ?? null,
+  };
+  if (opts.whenISO) body.clock_out = opts.whenISO;
+
+  const res = await api.patch("/time/clock-out", body, config);
+  return res.data as TimeEntryOut;
+}
+
+type TimeEntriesFilters = {
+  startISO?: string;
+  endISO?: string;
+  limit?: number;
+};
+
+type MyTimeEntriesOptions = TimeEntriesFilters & AuthOverrides;
+
+function isMyTimeEntriesOptions(value: unknown): value is MyTimeEntriesOptions {
+  if (!value || typeof value !== "object") return false;
+  const probe = value as Record<string, unknown>;
+  return (
+    "token" in probe ||
+    "tenantId" in probe ||
+    "startISO" in probe ||
+    "endISO" in probe ||
+    "limit" in probe
+  );
+}
+
+function toQueryParams(filters: TimeEntriesFilters) {
+  const params: Record<string, string | number> = {};
+  if (filters.startISO) params.start = filters.startISO;
+  if (filters.endISO) params.end = filters.endISO;
+  if (typeof filters.limit === "number") params.limit = filters.limit;
+  return params;
+}
+
+function mergeQueryParams(
+  target: { params?: Record<string, string | number> },
+  extra: Record<string, string | number>
+) {
+  if (!extra || !Object.keys(extra).length) return;
+  target.params = { ...(target.params ?? {}), ...extra };
+}
+
+export async function getMyTimeEntries(
+  token: string,
+  tenantId: string,
+  opts?: TimeEntriesFilters
+): Promise<TimeEntryOut[]>;
+export async function getMyTimeEntries(opts?: MyTimeEntriesOptions): Promise<TimeEntryOut[]>;
+export async function getMyTimeEntries(
+  arg1?: string | MyTimeEntriesOptions,
+  arg2?: string,
+  arg3?: TimeEntriesFilters
+): Promise<TimeEntryOut[]> {
+  let overrides: AuthOverrides | undefined;
+  let filters: TimeEntriesFilters = {};
+
+  if (typeof arg1 === "string" && typeof arg2 === "string") {
+    overrides = { token: arg1, tenantId: arg2 };
+    filters = arg3 ?? {};
+  } else if (isMyTimeEntriesOptions(arg1)) {
+    overrides = { token: arg1.token, tenantId: arg1.tenantId };
+    filters = {
+      startISO: arg1.startISO,
+      endISO: arg1.endISO,
+      limit: arg1.limit,
+    };
+  }
+
+  const { config } = buildAuthConfig(overrides);
+  mergeQueryParams(config, toQueryParams(filters));
+
+  const res = await api.get("/time/me", config);
+  return res.data as TimeEntryOut[];
+}
+
+type TenantTimeEntriesFilters = TimeEntriesFilters & { userId?: UUID };
+type TenantTimeEntriesOptions = TenantTimeEntriesFilters & AuthOverrides;
+
+function isTenantTimeEntriesOptions(value: unknown): value is TenantTimeEntriesOptions {
+  if (!value || typeof value !== "object") return false;
+  const probe = value as Record<string, unknown>;
+  return (
+    "userId" in probe ||
+    "token" in probe ||
+    "tenantId" in probe ||
+    "startISO" in probe ||
+    "endISO" in probe ||
+    "limit" in probe
+  );
+}
+
+export async function listTenantTimeEntries(
+  token: string,
+  tenantId: string,
+  opts?: TenantTimeEntriesFilters
+): Promise<TimeEntryOut[]>;
+export async function listTenantTimeEntries(
+  opts?: TenantTimeEntriesOptions
+): Promise<TimeEntryOut[]>;
+export async function listTenantTimeEntries(
+  arg1?: string | TenantTimeEntriesOptions,
+  arg2?: string,
+  arg3?: TenantTimeEntriesFilters
+): Promise<TimeEntryOut[]> {
+  let overrides: AuthOverrides | undefined;
+  let filters: TenantTimeEntriesFilters = {};
+
+  if (typeof arg1 === "string" && typeof arg2 === "string") {
+    overrides = { token: arg1, tenantId: arg2 };
+    filters = arg3 ?? {};
+  } else if (isTenantTimeEntriesOptions(arg1)) {
+    overrides = { token: arg1.token, tenantId: arg1.tenantId };
+    filters = {
+      startISO: arg1.startISO,
+      endISO: arg1.endISO,
+      limit: arg1.limit,
+      userId: arg1.userId,
+    };
+  }
+
+  const { config } = buildAuthConfig(overrides);
+  const params = toQueryParams(filters);
+  if (filters.userId) params.user_id = filters.userId;
+  mergeQueryParams(config, params);
+
+  const res = await api.get("/time/entries", config);
+  return res.data as TimeEntryOut[];
 }
 
 export async function listMyTimeEntries(from?: string, to?: string) {
-  const params: Record<string, string> = {};
-  if (from) params.start = from;
-  if (to) params.end = to;
-
-  const res = await api.get("/time/me", { params });
-  return res.data;
+  return getMyTimeEntries({ startISO: from, endISO: to });
 }
