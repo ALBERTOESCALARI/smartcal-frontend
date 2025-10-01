@@ -1,147 +1,131 @@
-// src/app/auth/reset-complete/Client.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import React, { useState } from "react";
 
 type Props = { token: string };
 
 export default function ResetCompleteClient({ token }: Props) {
   const router = useRouter();
-  const API_BASE = useMemo(
-    () =>
-      process.env.NEXT_PUBLIC_API_BASE ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      "",
-    []
-  );
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
 
-  const disabled =
-    busy || !token || password.length < 8 || password !== confirm || !API_BASE;
+  if (!token) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md w-full rounded-2xl border p-6 bg-white">
+          <h1 className="text-xl font-semibold mb-2">Invalid link</h1>
+          <p className="text-sm text-gray-600">
+            This reset link is missing a token or has been malformed. Please
+            request a new one.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  async function submit(e: React.FormEvent) {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrMsg(null);
-    setOkMsg(null);
+    setError(null);
 
-    if (!API_BASE) {
-      setErrMsg("Missing NEXT_PUBLIC_API_BASE on the frontend.");
-      return;
-    }
-    if (!token) {
-      setErrMsg("This reset link is invalid or missing a token.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirm) {
-      setErrMsg("Passwords do not match.");
-      return;
-    }
-    if (password.length < 8) {
-      setErrMsg("Password must be at least 8 characters.");
+      setError("Passwords do not match.");
       return;
     }
 
-    setBusy(true);
+    setSubmitting(true);
     try {
-      // Backend alias accepts { token, password } OR { token, new_password }
-      const res = await fetch(`${API_BASE}/auth/reset-complete`, {
+      const base =
+        process.env.NEXT_PUBLIC_API_BASE ||
+        process.env.NEXT_PUBLIC_API_BASE_URL ||
+        process.env.NEXT_PUBLIC_API_URL;
+
+      if (!base) {
+        throw new Error("API base URL is not configured.");
+      }
+
+      const res = await fetch(`${base}/auth/reset-complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ token, new_password: password }),
       });
 
-      if (res.ok) {
-        setOkMsg("Password updated. Redirecting to sign in…");
-        setTimeout(() => router.push("/auth/login"), 1200);
-      } else {
-        let detail = "Reset failed. The link may be expired—request a new one.";
-        try {
-          const data = await res.json();
-          if (typeof data?.detail === "string") detail = data.detail;
-        } catch {}
-        setErrMsg(detail);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Reset failed.");
       }
-    } catch {
-      setErrMsg("Network error. Please try again.");
+
+      setOk(true);
+      setTimeout(() => router.push("/login"), 1500);
+    } catch (err: any) {
+      setError(err.message || "Network error.");
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
-    <div className="w-full max-w-md">
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-semibold">Set your new password</h1>
-        {!token && (
-          <p className="mt-2 text-sm text-red-600">
-            This link is invalid or missing a token. Please request a new reset.
-          </p>
-        )}
-      </div>
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-md w-full rounded-2xl border p-6 bg-white">
+        <h1 className="text-2xl font-semibold mb-2">Set your password</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          Enter a new password for your account.
+        </p>
 
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">New password</label>
-          <input
-            type="password"
-            className="w-full rounded-md border px-3 py-2"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-            minLength={8}
-            required
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Minimum 8 characters.
-          </p>
-        </div>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">New password</label>
+            <input
+              type="password"
+              className="w-full rounded-lg border px-3 py-2"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={8}
+            />
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Confirm password</label>
-          <input
-            type="password"
-            className="w-full rounded-md border px-3 py-2"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-            minLength={8}
-            required
-          />
-        </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Confirm password</label>
+            <input
+              type="password"
+              className="w-full rounded-lg border px-3 py-2"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={8}
+            />
+          </div>
 
-        {errMsg && <p className="text-sm text-red-600">{errMsg}</p>}
-        {okMsg && <p className="text-sm text-green-600">{okMsg}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {ok && <p className="text-sm text-green-600">Password updated! Redirecting…</p>}
 
-        <button
-          type="submit"
-          className="w-full rounded-md bg-black text-white py-2 disabled:opacity-50"
-          disabled={disabled}
-        >
-          {busy ? "Saving…" : "Save password"}
-        </button>
+          <button
+            type="submit"
+            className="w-full rounded-lg bg-black text-white py-2 font-medium disabled:opacity-60"
+            disabled={submitting}
+          >
+            {submitting ? "Saving…" : "Save password"}
+          </button>
+        </form>
 
         <button
-          type="button"
-          className="w-full rounded-md border py-2"
-          onClick={() => router.push("/auth/login")}
+          className="mt-4 text-sm text-gray-600 underline"
+          onClick={() => router.push("/login")}
         >
           Back to sign in
         </button>
-      </form>
-
-      {!API_BASE && (
-        <p className="mt-4 text-xs text-orange-600">
-          Tip: set <code>NEXT_PUBLIC_API_BASE</code> to your backend URL
-          (e.g. <code>https://smartcal-backend-2cyq.onrender.com</code>).
-        </p>
-      )}
+      </div>
     </div>
   );
 }
