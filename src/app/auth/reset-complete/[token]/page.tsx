@@ -1,19 +1,20 @@
-// Server component for /auth/reset-complete/[token]
-import { Suspense } from "react";
+// src/app/auth/reset-complete/[token]/page.tsx
+"use client";
+
 import ResetCompleteClient from "../Client";
 
-interface ResetCompletePathProps {
-  params: { token: string };
-}
-
-export default function ResetCompletePathPage({ params }: ResetCompletePathProps) {
-  const token = params.token ?? "";
-
-  return (
-    <div className="min-h-screen grid place-items-center p-6">
-      <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-        <ResetCompleteClient token={token} />
-      </Suspense>
-    </div>
-  );
+export default function ResetCompletePathPage({
+  params,
+}: {
+  params: { token?: string };
+}) {
+  const token = params?.token || "";
+  if (!token) {
+    return (
+      <div className="min-h-screen grid place-items-center p-6">
+        <p className="text-red-500 font-semibold">Invalid or missing reset link.</p>
+      </div>
+    );
+  }
+  return <ResetCompleteClient token={token} />;
 }
