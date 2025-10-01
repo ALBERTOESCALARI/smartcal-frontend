@@ -13,6 +13,7 @@ export default function ResetCompleteClient({ token }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [show, setShow] = useState(false);
 
   if (!token) {
     return (
@@ -72,48 +73,100 @@ export default function ResetCompleteClient({ token }: Props) {
     }
   };
 
+  // Inline validation states
+  const pwdTooShort = password.length > 0 && password.length < 8;
+  const mismatch = confirm.length > 0 && password !== confirm;
+
+  const isDisabled =
+    submitting || password.length < 8 || password !== confirm;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full rounded-2xl border p-6 bg-white">
+      <div
+        className={`max-w-md w-full rounded-2xl border p-6 bg-white transition-colors ${
+          ok ? "border-green-500" : "border-gray-200"
+        }`}
+      >
         <h1 className="text-2xl font-semibold mb-2">Set your password</h1>
         <p className="text-sm text-gray-600 mb-6">
           Enter a new password for your account.
         </p>
 
         <form onSubmit={onSubmit} className="space-y-4">
+          {/* New password */}
           <div>
             <label className="block text-sm font-medium mb-1">New password</label>
-            <input
-              type="password"
-              className="w-full rounded-lg border px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-              minLength={8}
-            />
+            <div className="relative">
+              <input
+                type={show ? "text" : "password"}
+                className={`w-full rounded-lg border px-3 py-2 pr-16 ${
+                  pwdTooShort ? "border-red-500" : "border-gray-300"
+                }`}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                aria-invalid={pwdTooShort ? "true" : "false"}
+                aria-describedby="pwd-help"
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-2 text-sm text-gray-600"
+                onClick={() => setShow((s) => !s)}
+              >
+                {show ? "Hide" : "Show"}
+              </button>
+            </div>
+            <p
+              id="pwd-help"
+              className={`mt-1 text-xs ${
+                pwdTooShort ? "text-red-600" : "text-gray-500"
+              }`}
+            >
+              Must be at least 8 characters.
+            </p>
           </div>
 
+          {/* Confirm password */}
           <div>
             <label className="block text-sm font-medium mb-1">Confirm password</label>
             <input
-              type="password"
-              className="w-full rounded-lg border px-3 py-2"
+              type={show ? "text" : "password"}
+              className={`w-full rounded-lg border px-3 py-2 ${
+                mismatch ? "border-red-500" : "border-gray-300"
+              }`}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"
               required
               minLength={8}
+              aria-invalid={mismatch ? "true" : "false"}
+              aria-describedby="confirm-help"
             />
+            <p
+              id="confirm-help"
+              className={`mt-1 text-xs ${
+                mismatch ? "text-red-600" : "text-gray-500"
+              }`}
+            >
+              Must match the password above.
+            </p>
           </div>
 
+          {/* Global error / success */}
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {ok && <p className="text-sm text-green-600">Password updated! Redirecting…</p>}
+          {ok && (
+            <p className="text-sm text-green-600" role="status" aria-live="polite">
+              Password updated! Redirecting…
+            </p>
+          )}
 
+          {/* Submit */}
           <button
             type="submit"
             className="w-full rounded-lg bg-black text-white py-2 font-medium disabled:opacity-60"
-            disabled={submitting}
+            disabled={isDisabled}
           >
             {submitting ? "Saving…" : "Save password"}
           </button>
