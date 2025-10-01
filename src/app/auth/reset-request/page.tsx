@@ -3,57 +3,70 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { requestPasswordReset } from "@/features/users/api";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 export default function ResetRequestPage() {
   const [employeeId, setEmployeeId] = useState("");
   const [email, setEmail] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const trimmedEmployeeId = useMemo(() => employeeId.trim(), [employeeId]);
+  const trimmedEmail = useMemo(() => email.trim(), [email]);
+
+  const validEmail = useMemo(
+    () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail),
+    [trimmedEmail]
+  );
+  const canSend = !!trimmedEmployeeId && validEmail && !busy;
+
+  async function onSend() {
+    if (!canSend) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await requestPasswordReset(trimmedEmployeeId, trimmedEmail);
+      // Generic success to avoid account enumeration:
+      setMsg("If that account exists, you’ll receive a reset link shortly.");
+    } catch (err) {
+      // Keep the same generic message even on error; log to console for you
+      console.warn("reset request failed:", err);
+      setMsg("If that account exists, you’ll receive a reset link shortly.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
-      <h1 className="text-xl font-semibold">Forgot password</h1>
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold">Forgot password</h1>
+      <p className="text-sm text-muted-foreground mt-2">
+        Enter your Employee ID and email to receive a reset link.
+      </p>
+
       <div className="space-y-3 mt-4">
-        <Input placeholder="Employee ID" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} />
-        <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <Button
-          disabled={!employeeId || !email || busy}
-          onClick={async () => {
-            setBusy(true);
-            setMsg(null);
-            try {
-              await requestPasswordReset(employeeId.trim(), email.trim());
-              setMsg("If that email exists, you’ll receive a reset link shortly.");
-            } catch (error: unknown) {
-              setMsg(getErrorMessage(error));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
+        <Input
+          placeholder="Employee ID"
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onSend()}
+          autoComplete="off"
+        />
+        <Input
+          placeholder="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onSend()}
+          autoComplete="email"
+        />
+        <Button disabled={!canSend} onClick={onSend}>
           {busy ? "Sending…" : "Send reset link"}
         </Button>
         {msg && <div className="text-sm text-muted-foreground">{msg}</div>}
+        {!validEmail && trimmedEmail.length > 0 && (
+          <div className="text-xs text-red-600">Enter a valid email.</div>
+        )}
       </div>
     </div>
   );
-}
-function getErrorMessage(err: unknown): string {
-  if (!err) return "Failed to request reset";
-  if (typeof err === "string") return err;
-  if (err instanceof Error) return err.message || "Failed to request reset";
-
-  if (typeof err === "object") {
-    const maybe = err as {
-      response?: { data?: { detail?: string } | string };
-      message?: string;
-    };
-    const data = maybe.response?.data;
-    const detail = typeof data === "string" ? data : data?.detail;
-    if (detail) return detail;
-    if (maybe.message) return maybe.message;
-  }
-
-  return "Failed to request reset";
 }
