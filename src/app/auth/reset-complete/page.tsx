@@ -3,13 +3,11 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useState } from "react";
 
-export default function ResetCompletePage() {
+export default function ResetCompleteClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // token comes from the email link …/auth/reset-complete?token=XYZ
   const token = searchParams.get("token") ?? "";
-
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +64,6 @@ export default function ResetCompletePage() {
       }
 
       setOk(true);
-      // small pause then send them to sign-in
       setTimeout(() => router.push("/login"), 1500);
     } catch (err: any) {
       setError(err.message || "Network error.");
