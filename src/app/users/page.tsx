@@ -173,12 +173,12 @@ function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string
 
   const base = envBase.replace(/\/+$/, "");
   if (base) {
-    return `${base}/auth/reset-complete?token=${encodeURIComponent(token)}`;
+    return `${base}/auth/reset-complete/${encodeURIComponent(token)}`;
   }
 
   if (typeof window !== "undefined") {
     const origin = window.location.origin.replace(/\/+$/, "");
-    return `${origin}/auth/reset-complete?token=${encodeURIComponent(token)}`;
+    return `${origin}/auth/reset-complete/${encodeURIComponent(token)}`;
   }
 
   return null;
