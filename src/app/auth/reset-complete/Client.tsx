@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 type Props = { token: string };
 
@@ -14,6 +14,19 @@ export default function ResetCompleteClient({ token }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [show, setShow] = useState(false);
+
+  // Normalize API base once
+  const apiBase = useMemo(() => {
+    const raw =
+      process.env.NEXT_PUBLIC_API_BASE ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "";
+    return raw.replace(/\/+$/, ""); // strip trailing slash(es)
+  }, []);
+
+  // keep a ref to abort in-flight requests if user navigates away fast
+  const abortRef = useRef<AbortController | null>(null);
 
   if (!token) {
     return (
@@ -41,34 +54,56 @@ export default function ResetCompleteClient({ token }: Props) {
       setError("Passwords do not match.");
       return;
     }
+    if (!apiBase) {
+      setError("API base URL is not configured.");
+      return;
+    }
 
     setSubmitting(true);
+
+    // Abort after 15s
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const base =
-        process.env.NEXT_PUBLIC_API_BASE ||
-        process.env.NEXT_PUBLIC_API_BASE_URL ||
-        process.env.NEXT_PUBLIC_API_URL;
-
-      if (!base) {
-        throw new Error("API base URL is not configured.");
-      }
-
-      const res = await fetch(`${base}/auth/reset-complete`, {
+      const res = await fetch(`${apiBase}/auth/reset-complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, new_password: password }),
+        signal: controller.signal,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || "Reset failed.");
+      // Treat any 2xx as success (backend uses 204 to avoid enumeration)
+      if (res.ok) {
+        setOk(true);
+        setTimeout(() => router.push("/login"), 1500);
+        return;
       }
 
-      setOk(true);
-      setTimeout(() => router.push("/login"), 1500);
+      // Try to surface a backend error if one exists
+      let detail = "Reset failed.";
+      try {
+        const data = await res.json();
+        if (typeof data?.detail === "string") detail = data.detail;
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(
+        detail ||
+          (res.status === 400
+            ? "This link may be invalid or expired."
+            : `Unexpected error (${res.status}).`)
+      );
     } catch (err: any) {
-      setError(err.message || "Network error.");
+      if (err?.name === "AbortError") {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(err?.message || "Network error. Please try again.");
+      }
     } finally {
+      clearTimeout(timeout);
       setSubmitting(false);
     }
   };
@@ -76,9 +111,7 @@ export default function ResetCompleteClient({ token }: Props) {
   // Inline validation states
   const pwdTooShort = password.length > 0 && password.length < 8;
   const mismatch = confirm.length > 0 && password !== confirm;
-
-  const isDisabled =
-    submitting || password.length < 8 || password !== confirm;
+  const isDisabled = submitting || password.length < 8 || password !== confirm;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
@@ -109,11 +142,15 @@ export default function ResetCompleteClient({ token }: Props) {
                 minLength={8}
                 aria-invalid={pwdTooShort ? "true" : "false"}
                 aria-describedby="pwd-help"
+                disabled={submitting}
               />
               <button
                 type="button"
                 className="absolute inset-y-0 right-2 text-sm text-gray-600"
                 onClick={() => setShow((s) => !s)}
+                aria-pressed={show}
+                aria-label={show ? "Hide password" : "Show password"}
+                disabled={submitting}
               >
                 {show ? "Hide" : "Show"}
               </button>
@@ -143,6 +180,7 @@ export default function ResetCompleteClient({ token }: Props) {
               minLength={8}
               aria-invalid={mismatch ? "true" : "false"}
               aria-describedby="confirm-help"
+              disabled={submitting}
             />
             <p
               id="confirm-help"
@@ -175,6 +213,7 @@ export default function ResetCompleteClient({ token }: Props) {
         <button
           className="mt-4 text-sm text-gray-600 underline"
           onClick={() => router.push("/login")}
+          disabled={submitting}
         >
           Back to sign in
         </button>
