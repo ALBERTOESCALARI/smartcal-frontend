@@ -1,3 +1,4 @@
+// src/app/auth/reset-complete/Client.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -18,68 +19,59 @@ export default function ResetCompleteClient({ token }: Props) {
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const disabled =
-    submitting ||
-    !token ||
-    password.length < 8 ||
-    password !== confirm ||
-    !API_BASE;
+    busy || !token || password.length < 8 || password !== confirm || !API_BASE;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
+    setErrMsg(null);
+    setOkMsg(null);
 
     if (!API_BASE) {
-      setError("Missing NEXT_PUBLIC_API_BASE in frontend environment.");
+      setErrMsg("Missing NEXT_PUBLIC_API_BASE on the frontend.");
       return;
     }
     if (!token) {
-      setError("This reset link is invalid or missing a token.");
+      setErrMsg("This reset link is invalid or missing a token.");
       return;
     }
     if (password !== confirm) {
-      setError("Passwords do not match.");
+      setErrMsg("Passwords do not match.");
       return;
     }
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setErrMsg("Password must be at least 8 characters.");
       return;
     }
 
-    setSubmitting(true);
+    setBusy(true);
     try {
+      // Backend alias accepts { token, password } OR { token, new_password }
       const res = await fetch(`${API_BASE}/auth/reset-complete`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Most backends don’t need tenant for password reset, so we don’t send X-Tenant-ID here.
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
-        // Let CORS work normally
       });
 
       if (res.ok) {
-        setMessage("Password updated. Redirecting to sign in…");
-        // brief pause so the user can read it
+        setOkMsg("Password updated. Redirecting to sign in…");
         setTimeout(() => router.push("/auth/login"), 1200);
       } else {
-        // try to read backend detail, fall back to generic
-        let detail = "Reset failed. The link may be expired—request a new invite.";
+        let detail = "Reset failed. The link may be expired—request a new one.";
         try {
           const data = await res.json();
           if (typeof data?.detail === "string") detail = data.detail;
         } catch {}
-        setError(detail);
+        setErrMsg(detail);
       }
     } catch {
-      setError("Network error. Please try again.");
+      setErrMsg("Network error. Please try again.");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
@@ -89,7 +81,7 @@ export default function ResetCompleteClient({ token }: Props) {
         <h1 className="text-2xl font-semibold">Set your new password</h1>
         {!token && (
           <p className="mt-2 text-sm text-red-600">
-            This link is invalid or missing a token. Please request a new invitation/reset email.
+            This link is invalid or missing a token. Please request a new reset.
           </p>
         )}
       </div>
@@ -124,15 +116,15 @@ export default function ResetCompleteClient({ token }: Props) {
           />
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {message && <p className="text-sm text-green-600">{message}</p>}
+        {errMsg && <p className="text-sm text-red-600">{errMsg}</p>}
+        {okMsg && <p className="text-sm text-green-600">{okMsg}</p>}
 
         <button
           type="submit"
           className="w-full rounded-md bg-black text-white py-2 disabled:opacity-50"
           disabled={disabled}
         >
-          {submitting ? "Saving…" : "Save password"}
+          {busy ? "Saving…" : "Save password"}
         </button>
 
         <button
@@ -146,7 +138,7 @@ export default function ResetCompleteClient({ token }: Props) {
 
       {!API_BASE && (
         <p className="mt-4 text-xs text-orange-600">
-          Tip: set <code>NEXT_PUBLIC_API_BASE</code> in your frontend env to your backend URL
+          Tip: set <code>NEXT_PUBLIC_API_BASE</code> to your backend URL
           (e.g. <code>https://smartcal-backend-2cyq.onrender.com</code>).
         </p>
       )}
