@@ -36,7 +36,10 @@ function parseJwt<T = Record<string, unknown>>(token: string | null): T | null {
   try {
     if (!token) return null;
     const base = token.split(".")[1];
-    const json = typeof window !== "undefined" ? atob(base.replace(/-/g, "+").replace(/_/g, "/")) : Buffer.from(base, "base64").toString();
+    const json =
+      typeof window !== "undefined"
+        ? atob(base.replace(/-/g, "+").replace(/_/g, "/"))
+        : Buffer.from(base, "base64").toString();
     return JSON.parse(json);
   } catch {
     return null;
@@ -46,7 +49,7 @@ function parseJwt<T = Record<string, unknown>>(token: string | null): T | null {
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
 
 interface AppShellProps {
-  children: ReactNode;
+  readonly children: ReactNode;
 }
 
 interface MeUser {
@@ -94,7 +97,7 @@ type MeResponse = {
   } | null;
 };
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({ children }: Readonly<AppShellProps>) {
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
@@ -126,16 +129,17 @@ export default function AppShell({ children }: AppShellProps) {
     } catch {}
   }
 
+  // Initial token parsing (no auth granted here)
   useEffect(() => {
     setMounted(true);
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    setAuthed(Boolean(token));
+    // ⚠️ Do NOT set authed here; wait for /auth/me success
     const claims = parseJwt<TokenClaims>(token);
     if (claims) {
       const emailFromToken =
         typeof claims.email === "string" && claims.email.includes("@")
           ? claims.email
-          : ""; // don't use `sub` as email; many providers set it to a UUID
+          : "";
 
       setTokenUser({
         id: claims.id || claims.user_id || claims.uid || claims.sub || undefined,
@@ -158,6 +162,7 @@ export default function AppShell({ children }: AppShellProps) {
     }
   }, [pathname]);
 
+  // Server-confirmed auth state via /auth/me
   useEffect(() => {
     if (!mounted) return;
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -173,6 +178,9 @@ export default function AppShell({ children }: AppShellProps) {
           credentials: "include",
         });
         if (!response.ok) {
+          // Backend said no; ensure authed is false
+          setMe(null);
+          setAuthed(false);
           throw new Error(await response.text());
         }
         const data: MeResponse = await response.json();
@@ -193,18 +201,21 @@ export default function AppShell({ children }: AppShellProps) {
             data.user.tenant_id,
             data.tenant?.id,
             Array.isArray(data.tenants) && data.tenants.length === 1 ? data.tenants[0]?.id : undefined,
-          ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+          ].filter(
+            (candidate): candidate is string =>
+              typeof candidate === "string" && candidate.length > 0
+          );
 
           if (tenantCandidates.length > 0) {
             setTenantIdOnce(tenantCandidates[0]);
           }
         } else {
           setMe(null);
-          setAuthed(Boolean(token));
+          setAuthed(false);
         }
       } catch {
         setMe(null);
-        setAuthed(Boolean(token));
+        setAuthed(false);
       } finally {
         setLoadingMe(false);
       }
@@ -403,6 +414,11 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }
 
+  // Compute layout classes: with sidebar when authed; single column when not.
+  const gridClass = authed
+    ? "mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6 md:grid-cols-[220px_1fr]"
+    : "mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6";
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Top bar */}
@@ -412,17 +428,19 @@ export default function AppShell({ children }: AppShellProps) {
         </a>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            {/* Mobile nav */}
-            <Sheet open={open} onOpenChange={setOpen}>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="md:hidden" aria-label="Open navigation">
-                  Menu
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-64" aria-label="Sidebar navigation">
-                <div className="mt-8">{NavList}</div>
-              </SheetContent>
-            </Sheet>
+            {/* Mobile nav (only when authenticated) */}
+            {authed ? (
+              <Sheet open={open} onOpenChange={setOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" size="sm" className="md:hidden" aria-label="Open navigation">
+                    Menu
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-64" aria-label="Sidebar navigation">
+                  <div className="mt-8">{NavList}</div>
+                </SheetContent>
+              </Sheet>
+            ) : null}
 
             <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
               <Image
@@ -433,13 +451,14 @@ export default function AppShell({ children }: AppShellProps) {
                 width={96}
                 priority
               />
-              
             </Link>
-            {(loadingMe || identityText) && (
+
+            {/* Identity text (only when authenticated) */}
+            {authed && identityText ? (
               <span className="text-sm text-green-600 ml-4">
-                Signed in as: {identityText || "…"}
+                Signed in as: {identityText}
               </span>
-            )}
+            ) : null}
           </div>
 
           {/* Right side actions */}
@@ -450,11 +469,13 @@ export default function AppShell({ children }: AppShellProps) {
       </header>
 
       {/* Main grid */}
-      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6 md:grid-cols-[220px_1fr]">
-        {/* Sidebar (desktop) */}
-        <aside className="block">
-          <div className="sticky top-16">{NavList}</div>
-        </aside>
+      <div className={gridClass}>
+        {/* Sidebar (desktop) - only when authenticated */}
+        {authed ? (
+          <aside className="block">
+            <div className="sticky top-16">{NavList}</div>
+          </aside>
+        ) : null}
 
         {/* Content */}
         <main id="content">{children}</main>
