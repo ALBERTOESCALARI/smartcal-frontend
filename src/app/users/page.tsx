@@ -8,8 +8,7 @@ import RequireAuth from "@/components/require-auth";
 import {
   changeUserPassword,
   createUser,
-  deleteUser,
-  fetchUsers,
+  deleteUser, // kept in case you want to revert; not used below
   inviteExistingUsers,
   inviteUser,
   unlockUser,
@@ -18,10 +17,9 @@ import {
   type Credential,
   type InviteExistingResult,
   type InviteUserResponse,
-  type User,
+  type User
 } from "@/features/users/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
 import * as React from "react";
 
 const PROTECTED_EMAIL = "albertoescalari2@yahoo.com";
@@ -198,6 +196,34 @@ function makeTempPassword(): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
+// Local fetcher that supports include_inactive (keeps your shared API untouched)
+// ────────────────────────────────────────────────────────────────────────────────
+type UserRow = User & { is_active?: boolean };
+
+async function fetchUsersApi(tenantId: string, includeInactive: boolean): Promise<UserRow[]> {
+  if (!tenantId) return [];
+  const base =
+    (process.env.NEXT_PUBLIC_API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_API_BASE ||
+      "").replace(/\/+$/, "");
+  const url = `${base || ""}/users?tenant_id=${encodeURIComponent(
+    tenantId
+  )}&include_inactive=${includeInactive ? "true" : "false"}`;
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(url, { credentials: "include", headers });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to fetch users (${res.status})`);
+  }
+  return res.json();
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────────
 function BulkImportPanel({ tenantId, onDone }: { tenantId: string; onDone?: () => void }) {
@@ -256,58 +282,59 @@ export default function UsersPage() {
   const queryClient = useQueryClient();
 
   // Determine current user + role (to restrict page for members)
-type MeState = {
-  id?: string;
-  name?: string;
-  employee_id?: string;
-  email?: string;
-  role?: string;
-};
+  type MeState = {
+    id?: string;
+    name?: string;
+    employee_id?: string;
+    email?: string;
+    role?: string;
+  };
 
-const [me, setMe] = React.useState<MeState | null>(null);
-const [loadingMe, setLoadingMe] = React.useState(true);
-const [authRole, setAuthRole] = React.useState<string>("member");
-const isAdmin = authRole === "admin";
+  const [me, setMe] = React.useState<MeState | null>(null);
+  const [loadingMe, setLoadingMe] = React.useState(true);
+  const [authRole, setAuthRole] = React.useState<string>("member");
+  const isAdmin = authRole === "admin";
 
-React.useEffect(() => {
-  let cancelled = false;
-  async function loadMe() {
-    try {
-      const base = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
-      const url = base ? `${base}/auth/me` : "/auth/me";
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(url, { credentials: "include", headers });
-      if (!res.ok) throw new Error("me failed");
-      const data = await res.json();
-      if (cancelled) return;
-      const nextMe: MeState = {
-        id: data?.id ?? data?.user?.id,
-        name: data?.name ?? data?.user?.name,
-        employee_id: data?.employee_id ?? data?.user?.employee_id,
-        email: data?.user?.email,
-        role: data?.role ?? data?.user?.role,
-      };
-      setMe(nextMe);
-      setAuthRole(String(nextMe.role || "member").toLowerCase());
-    } catch {
-      // keep defaults
-    } finally {
-      if (!cancelled) setLoadingMe(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadMe() {
+      try {
+        const base = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
+        const url = base ? `${base}/auth/me` : "/auth/me";
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(url, { credentials: "include", headers });
+        if (!res.ok) throw new Error("me failed");
+        const data = await res.json();
+        if (cancelled) return;
+        const nextMe: MeState = {
+          id: data?.id ?? data?.user?.id,
+          name: data?.name ?? data?.user?.name,
+          employee_id: data?.employee_id ?? data?.user?.employee_id,
+          email: data?.user?.email,
+          role: data?.role ?? data?.user?.role,
+        };
+        setMe(nextMe);
+        setAuthRole(String(nextMe.role || "member").toLowerCase());
+      } catch {
+        // keep defaults
+      } finally {
+        if (!cancelled) setLoadingMe(false);
+      }
     }
-  }
-  loadMe();
-  return () => {
-  cancelled = true;
-};
-}, []);
+    loadMe();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Local state
   // ────────────────────────────────────────────────────────────────────────────
   const [tenantId, setTenantId] = React.useState("");
   const [mounted, setMounted] = React.useState(false);
+  const [includeInactive, setIncludeInactive] = React.useState(false); // NEW
 
   // Add / Invite form state
   const [email, setEmail] = React.useState("");
@@ -342,12 +369,10 @@ React.useEffect(() => {
 
   // Inline edit buffer for table rows
   const [edits, setEdits] = React.useState<
-  Record<string, { email?: string; name?: string; role?: string; credentials?: Credential }>
->({});
+    Record<string, { email?: string; name?: string; role?: string; credentials?: Credential }>
+  >({});
 
   const [credentials, setCredentials] = React.useState<Credential>("EMT");
-
-  
 
   // ────────────────────────────────────────────────────────────────────────────
   // Effects
@@ -415,21 +440,21 @@ React.useEffect(() => {
   }
 
   function setEdit(id: string, field: "credentials", value: Credential): void;
-function setEdit(id: string, field: "email" | "name" | "role", value: string): void;
+  function setEdit(id: string, field: "email" | "name" | "role", value: string): void;
   function setEdit(
     id: string,
     field: "email" | "name" | "role" | "credentials",
     value: string | Credential
   ) {
-  setEdits((prev) => ({
-    ...prev,
-    [id]: { ...(prev[id] || {}), [field]: value } as {
-      email?: string;
-      name?: string;
-      role?: string;
-      credentials?: Credential;
-    },
-  }));
+    setEdits((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), [field]: value } as {
+        email?: string;
+        name?: string;
+        role?: string;
+        credentials?: Credential;
+      },
+    }));
   }
 
   function openPwModal(user: User) {
@@ -516,43 +541,42 @@ function setEdit(id: string, field: "email" | "name" | "role", value: string): v
   // ────────────────────────────────────────────────────────────────────────────
   // Data fetching
   // ────────────────────────────────────────────────────────────────────────────
-  const { data: users, isLoading, isError, error } = useQuery<User[], Error>({
-    queryKey: ["users", tenantId],
-    queryFn: () => fetchUsers(tenantId),
+  const { data: users, isLoading, isError, error } = useQuery<UserRow[], Error>({
+    queryKey: ["users", tenantId, includeInactive],
+    queryFn: () => fetchUsersApi(tenantId, includeInactive),
     enabled: !!tenantId,
   });
 
-  // Employee dropdown filter
-    // Employee dropdown filter + name search (must come after users is declared)
-const [selectedUserId, setSelectedUserId] = React.useState<string>(""); // blank shows none by default
-const [searchName, setSearchName] = React.useState<string>("");
+  // Employee dropdown filter + name search (must come after users is declared)
+  const [selectedUserId, setSelectedUserId] = React.useState<string>(""); // blank shows none by default
+  const [searchName, setSearchName] = React.useState<string>("");
 
-const filteredUsers = React.useMemo(() => {
-  const list = users ?? [];
-  const norm = (s: string) => s.toLowerCase();
+  const filteredUsers = React.useMemo<UserRow[]>(() => {
+    const list = users ?? [];
+    const norm = (s: string) => s.toLowerCase();
 
-  // Base set based on dropdown
-  let base: User[] = [];
-  if (selectedUserId === "__ALL__") {
-    base = list;
-  } else if (selectedUserId) {
-    base = list.filter((u) => u.id === selectedUserId);
-  } else {
-    // blank -> none by default unless searching
-    base = [];
-  }
+    // Base set based on dropdown
+    let base: UserRow[] = [];
+    if (selectedUserId === "__ALL__") {
+      base = list;
+    } else if (selectedUserId) {
+      base = list.filter((u) => u.id === selectedUserId);
+    } else {
+      // blank -> none by default unless searching
+      base = [];
+    }
 
-  // Apply search by name (case-insensitive) if provided
-  const q = searchName.trim();
-  if (!q) {
-    return base;
-  }
-  const qn = norm(q);
+    // Apply search by name (case-insensitive) if provided
+    const q = searchName.trim();
+    if (!q) {
+      return base;
+    }
+    const qn = norm(q);
 
-  // If blank or All, search across all; if specific user selected, still filter that base
-  const haystack = selectedUserId === "" || selectedUserId === "__ALL__" ? list : base;
-  return haystack.filter((u) => (u.name ? norm(u.name).includes(qn) : false));
-}, [users, selectedUserId, searchName]);
+    // If blank or All, search across all; if specific user selected, still filter that base
+    const haystack = selectedUserId === "" || selectedUserId === "__ALL__" ? list : base;
+    return haystack.filter((u) => (u.name ? u.name.toLowerCase().includes(qn) : false));
+  }, [users, selectedUserId, searchName]);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Mutations
@@ -606,17 +630,17 @@ const filteredUsers = React.useMemo(() => {
       queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
     },
     onError: (err: unknown) => {
-  const e = err as { response?: { data?: { detail?: string }; status?: number }; status?: number; message?: string };
-  const detail = e?.response?.data?.detail;
-  const status = e?.response?.status ?? e?.status;
-  const msg =
-    typeof detail === "string"
-      ? detail
-      : status
-      ? `Failed to unlock (status ${status})`
-      : e?.message || "Failed to unlock user";
-  alert(msg);
-},
+      const e = err as { response?: { data?: { detail?: string }; status?: number }; status?: number; message?: string };
+      const detail = e?.response?.data?.detail;
+      const status = e?.response?.status ?? e?.status;
+      const msg =
+        typeof detail === "string"
+          ? detail
+          : status
+          ? `Failed to unlock (status ${status})`
+          : e?.message || "Failed to unlock user";
+      alert(msg);
+    },
   });
 
   const createInvite = useMutation<
@@ -700,6 +724,28 @@ const filteredUsers = React.useMemo(() => {
     deleteMut.mutate(id);
   }
 
+  async function handleReactivate(id: string) { // NEW
+    if (!tenantId) return alert("Set a tenant first");
+    const base =
+      (process.env.NEXT_PUBLIC_API_BASE_URL ||
+        process.env.NEXT_PUBLIC_API_URL ||
+        process.env.NEXT_PUBLIC_API_BASE ||
+        "").replace(/\/+$/, "");
+    const url = `${base || ""}/users/${encodeURIComponent(id)}/reactivate?tenant_id=${encodeURIComponent(tenantId)}`;
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(url, { method: "POST", credentials: "include", headers });
+    if (!res.ok) {
+      const text = await res.text();
+      alert(text || `Failed to reactivate (${res.status})`);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Render
   // ────────────────────────────────────────────────────────────────────────────
@@ -708,732 +754,752 @@ const filteredUsers = React.useMemo(() => {
   }
 
   return (
-  <RequireAuth>
-    {!isAdmin ? (
-      <div style={{ padding: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>Users</h1>
-        <div style={{ padding: 12, border: "1px solid #e5e7eb", borderRadius: 6, maxWidth: 520 }}>
-          <div style={{ fontSize: 14, marginBottom: 6 }}>
-            <strong>Name:</strong> {me?.name || "—"}
-          </div>
-          <div style={{ fontSize: 14, marginBottom: 6 }}>
-            <strong>Employee ID:</strong> {me?.employee_id || "—"}
-          </div>
-          <div style={{ fontSize: 12, color: "#64748b" }}>
-            Contact your administrator for user management.
-          </div>
-        </div>
-
-      </div>
-    ) : (
-      <div className="mx-auto max-w-5xl p-4 md:p-6 space-y-6">
-
-        {/* Tenant selector */}
-        <div className={`rounded-lg border p-3 md:p-4 max-w-xl shadow-sm ${tenantId ? 'bg-slate-50' : 'bg-amber-50'}`}> 
-          <div className="text-sm font-medium mb-2">Tenant ID</div>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              placeholder="Enter tenant_id"
-              className="w-full rounded-md border px-3 py-2"
-            />
-            <button
-              type="button"
-              onClick={() => saveTenantId(tenantId)}
-              className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-        {!tenantId && (
-          <div className="text-amber-700 text-xs">
-            No tenant selected. Enter and save a tenant ID to load users.
-          </div>
-        )}
-
-        {/* Add form (inputs only; remove Add User button) */}
-        <div className="max-w-xl space-y-4">
-          <div className="space-y-1">
-            <label htmlFor="user-email" className="text-sm font-medium">Email</label>
-            <input
-              id="user-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
-              required
-              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="user-name" className="text-sm font-medium">Name (optional)</label>
-            <input
-              id="user-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Full name"
-              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="user-empid" className="text-sm font-medium">Employee ID</label>
-            <input
-              id="user-empid"
-              type="text"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              placeholder="e.g. E12345"
-              required
-              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label htmlFor="user-role" className="text-sm font-medium">Role</label>
-              <select
-                id="user-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-              </select>
+    <RequireAuth>
+      {!isAdmin ? (
+        <div style={{ padding: 16 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>Users</h1>
+          <div style={{ padding: 12, border: "1px solid #e5e7eb", borderRadius: 6, maxWidth: 520 }}>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>
+              <strong>Name:</strong> {me?.name || "—"}
             </div>
-            <div className="space-y-1">
-              <label htmlFor="user-creds" className="text-sm font-medium">Credentials</label>
-              <select
-                id="user-creds"
-                value={credentials}
-                onChange={(e) => setCredentials(e.target.value as Credential)}
-                className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="EMT">EMT</option>
-                <option value="Paramedic">Paramedic</option>
-              </select>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>
+              <strong>Employee ID:</strong> {me?.employee_id || "—"}
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>
+              Contact your administrator for user management.
             </div>
           </div>
         </div>
+      ) : (
+        <div className="mx-auto max-w-5xl p-4 md:p-6 space-y-6">
+          {/* Tenant selector */}
+          <div className={`rounded-lg border p-3 md:p-4 max-w-xl shadow-sm ${tenantId ? 'bg-slate-50' : 'bg-amber-50'}`}>
+            <div className="text-sm font-medium mb-2">Tenant ID</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={tenantId}
+                onChange={(e) => setTenantId(e.target.value)}
+                placeholder="Enter tenant_id"
+                className="w-full rounded-md border px-3 py-2"
+              />
+              <button
+                type="button"
+                onClick={() => saveTenantId(tenantId)}
+                className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+          {!tenantId && (
+            <div className="text-amber-700 text-xs">
+              No tenant selected. Enter and save a tenant ID to load users.
+            </div>
+          )}
 
-        {/* Add user submit (admin only) */}
-        <form
-          onSubmit={handleCreate}
-          className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
-        >
-          <div style={{ fontWeight: 600 }}>Add user to tenant</div>
-          <div style={{ fontSize: 12, color: "#64748b" }}>
-            Creates the user in the database for this tenant. <strong>Email</strong> and <strong>Employee ID</strong> are required.
+          {/* Show deactivated toggle (admin) */}
+          {tenantId ? (
+            <div className="text-sm flex items-center gap-2">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeInactive}
+                  onChange={(e) => setIncludeInactive(e.target.checked)}
+                />{" "}
+                Show deactivated users
+              </label>
+            </div>
+          ) : null}
+
+          {/* Add form (inputs only; remove Add User button) */}
+          <div className="max-w-xl space-y-4">
+            <div className="space-y-1">
+              <label htmlFor="user-email" className="text-sm font-medium">Email</label>
+              <input
+                id="user-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+                required
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="user-name" className="text-sm font-medium">Name (optional)</label>
+              <input
+                id="user-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Full name"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="user-empid" className="text-sm font-medium">Employee ID</label>
+              <input
+                id="user-empid"
+                type="text"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                placeholder="e.g. E12345"
+                required
+                className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label htmlFor="user-role" className="text-sm font-medium">Role</label>
+                <select
+                  id="user-role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="user-creds" className="text-sm font-medium">Credentials</label>
+                <select
+                  id="user-creds"
+                  value={credentials}
+                  onChange={(e) => setCredentials(e.target.value as Credential)}
+                  className="w-full rounded-md border px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="EMT">EMT</option>
+                  <option value="Paramedic">Paramedic</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div>
-            <button
-              type="submit"
-              disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
-              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${createMut.isPending ? 'opacity-60' : ''}`}
-              aria-disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
-            >
-              {createMut.isPending ? "Adding…" : "Add User"}
-            </button>
-          </div>
-          {showSuccess ? (
-            <div style={{ fontSize: 12, color: "#16a34a" }}>
-              User created successfully
-              {generatedPw ? (
-                <span style={{ marginLeft: 6 }}>
-                  · Temp password: <code>{generatedPw}</code>
+
+          {/* Add user submit (admin only) */}
+          <form
+            onSubmit={handleCreate}
+            className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
+          >
+            <div style={{ fontWeight: 600 }}>Add user to tenant</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>
+              Creates the user in the database for this tenant. <strong>Email</strong> and <strong>Employee ID</strong> are required.
+            </div>
+            <div>
+              <button
+                type="submit"
+                disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
+                className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${createMut.isPending ? 'opacity-60' : ''}`}
+                aria-disabled={!tenantId || createMut.isPending || !email.trim() || !employeeId.trim()}
+              >
+                {createMut.isPending ? "Adding…" : "Add User"}
+              </button>
+            </div>
+            {showSuccess ? (
+              <div style={{ fontSize: 12, color: "#16a34a" }}>
+                User created successfully
+                {generatedPw ? (
+                  <span style={{ marginLeft: 6 }}>
+                    · Temp password: <code>{generatedPw}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof navigator !== "undefined" && navigator.clipboard) {
+                          navigator.clipboard
+                            .writeText(generatedPw)
+                            .then(() => setCopiedPw(true))
+                            .catch(() => {});
+                          setTimeout(() => setCopiedPw(false), 1500);
+                        }
+                      }}
+                      className="ml-2 rounded-md px-2 py-1 text-xs font-medium bg-white border hover:bg-neutral-50"
+                      style={{ marginLeft: 8 }}
+                    >
+                      {copiedPw ? "Copied!" : "Copy"}
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </form>
+
+          {/* Generate invite link */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const em = email.trim();
+              const emp = employeeId.trim();
+              if (!tenantId) return alert("Set a tenant first");
+              if (!em) return alert("Email is required");
+              createInvite.mutate({
+                email: em,
+                name: name.trim() || undefined,
+                role,
+                employee_id: emp || undefined,
+                credentials,
+              });
+            }}
+            className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
+          >
+            <div style={{ fontWeight: 600 }}>Generate invite link (no email sent)</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>
+              Creates a one-time link so the user can set their own password. Copy and share it yourself.
+            </div>
+            <div>
+              <button
+                type="submit"
+                disabled={!tenantId || createInvite.isPending}
+                className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${createInvite.isPending ? 'opacity-60' : ''}`}
+              >
+                {createInvite.isPending ? "Generating…" : "Generate Link"}
+              </button>
+              {inviteMsg ? (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 12,
+                    color: inviteMsg.includes("generated") || inviteMsg.includes("created") ? "#16a34a" : "#b91c1c",
+                  }}
+                >
+                  {inviteMsg}
+                </span>
+              ) : null}
+            </div>
+            {inviteLink ? (
+              <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb" }}>
+                <div style={{ fontSize: 12, marginBottom: 6 }}>Invite link</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={inviteLink}
+                    readOnly
+                    style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                  />
                   <button
                     type="button"
                     onClick={() => {
                       if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard
-                          .writeText(generatedPw)
-                          .then(() => setCopiedPw(true))
-                          .catch(() => {});
-                        setTimeout(() => setCopiedPw(false), 1500);
+                        navigator.clipboard.writeText(inviteLink).catch(() => {});
                       }
                     }}
-                    className="ml-2 rounded-md px-2 py-1 text-xs font-medium bg-white border hover:bg-neutral-50"
-                    style={{ marginLeft: 8 }}
+                    className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
                   >
-                    {copiedPw ? "Copied!" : "Copy"}
+                    Copy
                   </button>
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </form>
-
-        {/* Invite user (email link) */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const em = email.trim();
-            const emp = employeeId.trim();
-            if (!tenantId) return alert("Set a tenant first");
-            if (!em) return alert("Email is required");
-            createInvite.mutate({
-              email: em,
-              name: name.trim() || undefined,
-              role,
-              employee_id: emp || undefined,
-              credentials,
-            });
-          }}
-          className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
-        >
-          <div style={{ fontWeight: 600 }}>Generate invite link (no email sent)</div>
-          <div style={{ fontSize: 12, color: "#64748b" }}>
-            Creates a one-time link so the user can set their own password. Copy and share it yourself.
-          </div>
-          <div>
-            <button
-              type="submit"
-              disabled={!tenantId || createInvite.isPending}
-              className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${createInvite.isPending ? 'opacity-60' : ''}`}
-            >
-              {createInvite.isPending ? "Generating…" : "Generate Link"}
-            </button>
-            {inviteMsg ? (
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: 12,
-                  color: inviteMsg.includes("generated") || inviteMsg.includes("created") ? "#16a34a" : "#b91c1c",
-                }}
-              >
-                {inviteMsg}
-              </span>
+                </div>
+              </div>
             ) : null}
-          </div>
-          {inviteLink ? (
-            <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb" }}>
-              <div style={{ fontSize: 12, marginBottom: 6 }}>Invite link</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="text"
-                  value={inviteLink}
-                  readOnly
-                  style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
-                />
+          </form>
+
+          {/* Invite existing users */}
+          <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
+              Generate set-password links for selected users and share them via your email client.
+            </div>
+
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 12, marginBottom: 6 }}>Invite selected emails</div>
+              <textarea
+                value={inviteEmails}
+                onChange={(e) => setInviteEmails(e.target.value)}
+                placeholder="Paste emails (comma or newline separated)"
+                rows={4}
+                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+              />
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (typeof navigator !== "undefined" && navigator.clipboard) {
-                      navigator.clipboard.writeText(inviteLink).catch(() => {});
+                  onClick={async () => {
+                    if (!tenantId) return alert("Set a tenant first");
+                    const list = inviteEmails
+                      .split(/[\n,]/)
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    if (list.length === 0) return alert("Add at least one email");
+                    setInviteExistingMsg(null);
+                    setInviteExistingResults([]);
+                    setInviteSelectedBusy(true);
+                    try {
+                      const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
+                      const resultList = res.results ?? [];
+                      const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
+                      const fail = resultList.filter((r) => r.status === "error").length;
+                      setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
+                      setInviteExistingResults(resultList);
+                    } catch (error: unknown) {
+                      setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
+                      setInviteExistingResults([]);
+                    } finally {
+                      setInviteSelectedBusy(false);
                     }
                   }}
-                  className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                  disabled={inviteSelectedBusy || !tenantId}
+                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteSelectedBusy ? 'opacity-60' : ''}`}
                 >
-                  Copy
+                  {inviteSelectedBusy ? "Inviting…" : "Invite selected"}
                 </button>
               </div>
             </div>
-          ) : null}
-        </form>
 
-        {/* Invite existing users */}
-        <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-            Generate set‑password links for selected users and share them via your email client.
-          </div>
-
-          <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 12, marginBottom: 6 }}>Invite selected emails</div>
-            <textarea
-              value={inviteEmails}
-              onChange={(e) => setInviteEmails(e.target.value)}
-              placeholder="Paste emails (comma or newline separated)"
-              rows={4}
-              style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
-            />
-            <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!tenantId) return alert("Set a tenant first");
-                  const list = inviteEmails
-                    .split(/[\n,]/)
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  if (list.length === 0) return alert("Add at least one email");
-                  setInviteExistingMsg(null);
-                  setInviteExistingResults([]);
-                  setInviteSelectedBusy(true);
-                  try {
-                    const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
-                    const resultList = res.results ?? [];
-                    const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
-                    const fail = resultList.filter((r) => r.status === "error").length;
-                    setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
-                    setInviteExistingResults(resultList);
-                  } catch (error: unknown) {
-                    setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
-                    setInviteExistingResults([]);
-                  } finally {
-                    setInviteSelectedBusy(false);
-                  }
-                }}
-                disabled={inviteSelectedBusy || !tenantId}
-                className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteSelectedBusy ? 'opacity-60' : ''}`}
-              >
-                {inviteSelectedBusy ? "Inviting…" : "Invite selected"}
-              </button>
-            </div>
-          </div>
-
-          {inviteExistingMsg ? (() => {
-            const lower = inviteExistingMsg.toLowerCase();
-            const color = lower.includes("fail") || lower.includes("error") ? "#b91c1c" : "#16a34a";
-            return (
-              <div style={{ fontSize: 12, marginTop: 8, color }}>
-                {inviteExistingMsg}
-              </div>
-            );
-          })() : null}
-          {inviteExistingResults.length > 0 ? (
-            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-              {inviteExistingResults.map((result, idx) => {
-                const hasLink = Boolean(result.invite_link);
-                return (
-                  <div
-                    key={`${result.email}-${idx}`}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 6,
-                      padding: 8,
-                      background: hasLink ? "#f9fafb" : "#fff",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{result.email}</span>
-                      <span style={{ fontSize: 12, color: hasLink ? "#16a34a" : result.status === "error" ? "#b91c1c" : "#64748b" }}>
-                        {result.status}
-                      </span>
-                    </div>
-                    {hasLink ? (
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          type="text"
-                          readOnly
-                          value={result.invite_link}
-                          style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (typeof navigator !== "undefined" && navigator.clipboard && result.invite_link) {
-                              navigator.clipboard.writeText(result.invite_link).catch(() => {});
-                            }
-                          }}
-                          className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                        >
-                          Copy Link
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!result.invite_link) return;
-                            const subject = encodeURIComponent("SmartCal invite link");
-                            const body = encodeURIComponent(
-                              `Hi ${result.email},\n\nUse this one-time link to set your password: ${result.invite_link}\n\nThis link may expire after use.`
-                            );
-                            window.location.href = `mailto:${encodeURIComponent(result.email)}?subject=${subject}&body=${body}`;
-                          }}
-                          className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                        >
-                          Email Link
-                        </button>
-                      </div>
-                    ) : null}
-                    {result.error ? (
-                      <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Bulk import (admin only, toggle visibility in-place) */}
-{isAdmin && tenantId ? (
-  <>
-    <button
-      type="button"
-      onClick={() => setShowBulk((v) => !v)}
-      className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-      aria-expanded={showBulk}
-      aria-controls="bulk-import-panel"
-    >
-      {showBulk ? "Hide bulk import" : "Show bulk import"}
-    </button>
-
-    {showBulk && (
-      <div id="bulk-import-panel">
-        <BulkImportPanel
-          tenantId={tenantId}
-          onDone={() =>
-            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
-          }
-        />
-      </div>
-    )}
-  </>
-) : null}
-
-        {/* Employee filter */}
-{Array.isArray(users) && users.length > 0 ? (
-  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-    <label style={{ fontSize: 12 }}>Show</label>
-    <select
-      value={selectedUserId}
-      onChange={(e) => setSelectedUserId(e.target.value)}
-      style={{ minWidth: 200 }}
-    >
-      {/* blank option shows none by default */}
-      <option value=""> </option>
-      <option value="__ALL__">All employees</option>
-      {(users ?? []).map((u) => {
-        const credential = getCredentialDisplay(u);
-        return (
-          <option key={u.id} value={u.id}>
-            {(u.name && u.name.trim()) ? u.name : u.email}
-            {u.employee_id ? ` · ${u.employee_id}` : ""}
-            {credential ? ` · ${credential}` : ""}
-          </option>
-        );
-      })}
-    </select>
-    <input
-      type="text"
-      value={searchName}
-      onChange={(e) => setSearchName(e.target.value)}
-      placeholder="Search by name"
-      style={{ minWidth: 220 }}
-    />
-  </div>
-) : null}
-
-        {/* Users table */}
-        {isLoading ? (
-          <div>Loading users…</div>
-        ) : isError ? (
-          <div style={{ color: "red" }}>
-            {(error as Error)?.message || "Failed to load users"}
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
-            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
-              <thead>
-                <tr>
-                <th style={th}>Email</th>
-                <th style={th}>Employee ID</th>
-                <th style={th}>Name</th>
-                <th style={th}>Role</th>
-                <th style={th}>Credentials</th>
-                <th style={th}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map((u) => {
-                  const pending = updateMut.isPending && updateMut.variables?.id === u.id;
-                  const protectedUser = isProtectedEmail(u.email);
+            {inviteExistingMsg ? (() => {
+              const lower = inviteExistingMsg.toLowerCase();
+              const color = lower.includes("fail") || lower.includes("error") ? "#b91c1c" : "#16a34a";
+              return (
+                <div style={{ fontSize: 12, marginTop: 8, color }}>
+                  {inviteExistingMsg}
+                </div>
+              );
+            })() : null}
+            {inviteExistingResults.length > 0 ? (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                {inviteExistingResults.map((result, idx) => {
+                  const hasLink = Boolean(result.invite_link);
                   return (
-                    <tr key={u.id}>
-                      <td style={td}>
-                        <input
-                          type="email"
-                          value={edits[u.id]?.email ?? u.email}
-                          onChange={(e) => setEdit(u.id, "email", e.target.value)}
-                          placeholder="user@example.com"
-                          style={{ width: "100%" }}
-                        />
-                      </td>
-                      <td style={td}>
-                        <code>{u.employee_id ?? "—"}</code>
-                      </td>
-                      <td style={td}>
-                        <input
-                          type="text"
-                          value={
-                            edits[u.id]?.name ?? (u.name || "")
-                          }
-                          onChange={(e) => setEdit(u.id, "name", e.target.value)}
-                          placeholder="Full name"
-                          style={{ width: "100%" }}
-                        />
-                      </td>
-                      <td style={td}>
-                        <select
-                          value={edits[u.id]?.role ?? (u.role || "member")}
-                          onChange={(e) => setEdit(u.id, "role", e.target.value)}
-                        >
-                          <option value="member">member</option>
-                          <option value="admin">admin</option>
-                        </select>
-                      </td>
-                      <td style={td}>
-                        <select
-                          value={edits[u.id]?.credentials ?? getCredentialValue(u)}
-                          onChange={(e) => setEdit(u.id, "credentials", e.target.value as Credential)}
-                        >
-                          <option value="">(none)</option>
-                          <option value="EMT">EMT</option>
-                          <option value="Paramedic">Paramedic</option>
-                        </select>
-                      </td>
-                      <td style={td}>
-                        {(() => {
-                          const patch = edits[u.id];
-                          const dirty = Boolean(
-                            patch &&
-                            (patch.email !== undefined ||
-                              patch.name !== undefined ||
-                              patch.role !== undefined ||
-                              patch.credentials !== undefined)
-                          );
-                          const disabled = pending || !tenantId || !dirty;
-                          return (
-                            <button onClick={() => handleSaveRow(u)} disabled={disabled} style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}>
-                              {pending ? "Saving…" : "Save"}
-                            </button>
-                          );
-                        })()}
-                        <button onClick={() => openPwModal(u)} style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }} disabled={!tenantId}>
-                          Change password
-                        </button>
-                        {!protectedUser ? (
+                    <div
+                      key={`${result.email}-${idx}`}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 6,
+                        padding: 8,
+                        background: hasLink ? "#f9fafb" : "#fff",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{result.email}</span>
+                        <span style={{ fontSize: 12, color: hasLink ? "#16a34a" : result.status === "error" ? "#b91c1c" : "#64748b" }}>
+                          {result.status}
+                        </span>
+                      </div>
+                      {hasLink ? (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <input
+                            type="text"
+                            readOnly
+                            value={result.invite_link}
+                            style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                          />
                           <button
-                            onClick={() => handleDelete(u.id)}
-                            style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }}
-                            disabled={deleteMut.isPending || !tenantId}
+                            type="button"
+                            onClick={() => {
+                              if (typeof navigator !== "undefined" && navigator.clipboard && result.invite_link) {
+                                navigator.clipboard.writeText(result.invite_link).catch(() => {});
+                              }
+                            }}
+                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
                           >
-                            {deleteMut.isPending ? "Deleting…" : "Delete"}
+                            Copy Link
                           </button>
-                        ) : (
-                          <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>Deletion locked</span>
-                        )}
-                        {Boolean(u.is_locked) && (
                           <button
-                            onClick={() => unlockMut.mutate({ id: u.id })}
-                            style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
-                            disabled={
-                              !tenantId ||
-                              (unlockMut.isPending &&
-                                unlockMut.variables?.id === u.id)
-                            }
+                            type="button"
+                            onClick={() => {
+                              if (!result.invite_link) return;
+                              const subject = encodeURIComponent("SmartCal invite link");
+                              const body = encodeURIComponent(
+                                `Hi ${result.email},\n\nUse this one-time link to set your password: ${result.invite_link}\n\nThis link may expire after use.`
+                              );
+                              window.location.href = `mailto:${encodeURIComponent(result.email)}?subject=${subject}&body=${body}`;
+                            }}
+                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
                           >
-                            {unlockMut.isPending &&
-                            unlockMut.variables?.id === u.id
-                              ? "Unlocking…"
-                              : "Unlock"}
+                            Email Link
                           </button>
-                        )}
-                      </td>
-                    </tr>
+                        </div>
+                      ) : null}
+                      {result.error ? (
+                        <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
+                      ) : null}
+                    </div>
                   );
                 })}
-                {filteredUsers.length === 0 && (
-              <tr>
-    <td colSpan={6} style={{ padding: 12, fontStyle: "italic", color: "#64748b" }}>
-      {selectedUserId === "" && !searchName.trim()
-        ? "Select a user or search by name."
-        : selectedUserId === "__ALL__" || searchName.trim()
-        ? "No match."
-        : "No users yet. Add one above."}
-    </td>
-  </tr>
-)}
-              </tbody>
-            </table>
+              </div>
+            ) : null}
           </div>
-        )}
 
-        {/* Change password modal */}
-        {pwOpen && pwUser ? (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 50,
-            }}
-          >
+          {/* Bulk import (admin only, toggle visibility in-place) */}
+          {isAdmin && tenantId ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowBulk((v) => !v)}
+                className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                aria-expanded={showBulk}
+                aria-controls="bulk-import-panel"
+              >
+                {showBulk ? "Hide bulk import" : "Show bulk import"}
+              </button>
+
+              {showBulk && (
+                <div id="bulk-import-panel">
+                  <BulkImportPanel
+                    tenantId={tenantId}
+                    onDone={() =>
+                      queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+                    }
+                  />
+                </div>
+              )}
+            </>
+          ) : null}
+
+          {/* Employee filter */}
+          {Array.isArray(users) && users.length > 0 ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+              <label style={{ fontSize: 12 }}>Show</label>
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                style={{ minWidth: 200 }}
+              >
+                {/* blank option shows none by default */}
+                <option value=""> </option>
+                <option value="__ALL__">All employees</option>
+                {(users ?? []).map((u) => {
+                  const credential = getCredentialDisplay(u);
+                  return (
+                    <option key={u.id} value={u.id}>
+                      {(u.name && u.name.trim()) ? u.name : u.email}
+                      {u.employee_id ? ` · ${u.employee_id}` : ""}
+                      {credential ? ` · ${credential}` : ""}
+                    </option>
+                  );
+                })}
+              </select>
+              <input
+                type="text"
+                value={searchName}
+                onChange={(e) => setSearchName(e.target.value)}
+                placeholder="Search by name"
+                style={{ minWidth: 220 }}
+              />
+            </div>
+          ) : null}
+
+          {/* Users table */}
+          {isLoading ? (
+            <div>Loading users…</div>
+          ) : isError ? (
+            <div style={{ color: "red" }}>
+              {(error as Error)?.message || "Failed to load users"}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+              <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Email</th>
+                    <th style={th}>Employee ID</th>
+                    <th style={th}>Name</th>
+                    <th style={th}>Role</th>
+                    <th style={th}>Credentials</th>
+                    <th style={th}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((u) => {
+                    const pending = updateMut.isPending && updateMut.variables?.id === u.id;
+                    const protectedUser = isProtectedEmail(u.email);
+                    return (
+                      <tr key={u.id}>
+                        <td style={td}>
+                          <input
+                            type="email"
+                            value={edits[u.id]?.email ?? u.email}
+                            onChange={(e) => setEdit(u.id, "email", e.target.value)}
+                            placeholder="user@example.com"
+                            style={{ width: "100%" }}
+                          />
+                        </td>
+                        <td style={td}>
+                          <code>{u.employee_id ?? "—"}</code>
+                        </td>
+                        <td style={td}>
+                          <input
+                            type="text"
+                            value={edits[u.id]?.name ?? (u.name || "")}
+                            onChange={(e) => setEdit(u.id, "name", e.target.value)}
+                            placeholder="Full name"
+                            style={{ width: "100%" }}
+                          />
+                        </td>
+                        <td style={td}>
+                          <select
+                            value={edits[u.id]?.role ?? (u.role || "member")}
+                            onChange={(e) => setEdit(u.id, "role", e.target.value)}
+                          >
+                            <option value="member">member</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        </td>
+                        <td style={td}>
+                          <select
+                            value={edits[u.id]?.credentials ?? getCredentialValue(u)}
+                            onChange={(e) => setEdit(u.id, "credentials", e.target.value as Credential)}
+                          >
+                            <option value="">(none)</option>
+                            <option value="EMT">EMT</option>
+                            <option value="Paramedic">Paramedic</option>
+                          </select>
+                        </td>
+                        <td style={td}>
+                          {(() => {
+                            const patch = edits[u.id];
+                            const dirty = Boolean(
+                              patch &&
+                              (patch.email !== undefined ||
+                                patch.name !== undefined ||
+                                patch.role !== undefined ||
+                                patch.credentials !== undefined)
+                            );
+                            const disabled = pending || !tenantId || !dirty;
+                            return (
+                              <button onClick={() => handleSaveRow(u)} disabled={disabled} style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}>
+                                {pending ? "Saving…" : "Save"}
+                              </button>
+                            );
+                          })()}
+                          <button onClick={() => openPwModal(u)} style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }} disabled={!tenantId}>
+                            Change password
+                          </button>
+                          {!protectedUser ? (
+                            u.is_active !== false ? (
+                              <button
+                                onClick={() => handleDelete(u.id)}
+                                style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }}
+                                disabled={deleteMut.isPending || !tenantId}
+                              >
+                                {deleteMut.isPending ? "Deleting…" : "Delete"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReactivate(u.id)}
+                                style={{ marginLeft: 8, background: "#16a34a", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent" }}
+                                disabled={!tenantId}
+                              >
+                                Reactivate
+                              </button>
+                            )
+                          ) : (
+                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>Deletion locked</span>
+                          )}
+                          {Boolean(u.is_locked) && (
+                            <button
+                              onClick={() => unlockMut.mutate({ id: u.id })}
+                              style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
+                              disabled={
+                                !tenantId ||
+                                (unlockMut.isPending &&
+                                  unlockMut.variables?.id === u.id)
+                              }
+                            >
+                              {unlockMut.isPending &&
+                              unlockMut.variables?.id === u.id
+                                ? "Unlocking…"
+                                : "Unlock"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 12, fontStyle: "italic", color: "#64748b" }}>
+                        {selectedUserId === "" && !searchName.trim()
+                          ? "Select a user or search by name."
+                          : selectedUserId === "__ALL__" || searchName.trim()
+                          ? "No match."
+                          : "No users yet. Add one above."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Change password modal */}
+          {pwOpen && pwUser ? (
             <div
               style={{
-                background: "white",
-                padding: 20,
-                width: 420,
-                borderRadius: 8,
-                boxShadow: "0 10px 20px rgba(0,0,0,0.2)",
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.35)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 50,
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>
-                Change password
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
-                {pwUser.email}
-              </div>
-              {(() => {
-                const meEmail = (me?.email || "").toLowerCase();
-                const isSelf = pwUser.email?.toLowerCase() === meEmail;
-                const needsAdminConfirm = !isSelf && (pwUser.role || "").toLowerCase() === "admin";
-                const showCurrentField = isSelf || needsAdminConfirm;
+              <div
+                style={{
+                  background: "white",
+                  padding: 20,
+                  width: 420,
+                  borderRadius: 8,
+                  boxShadow: "0 10px 20px rgba(0,0,0,0.2)",
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>
+                  Change password
+                </div>
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
+                  {pwUser.email}
+                </div>
+                {(() => {
+                  const meEmail = (me?.email || "").toLowerCase();
+                  const isSelf = pwUser.email?.toLowerCase() === meEmail;
+                  const needsAdminConfirm = !isSelf && (pwUser.role || "").toLowerCase() === "admin";
+                  const showCurrentField = isSelf || needsAdminConfirm;
 
-                return (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {showCurrentField ? (
-                      <label style={{ fontSize: 12 }}>
-                        {isSelf
-                          ? "Your current password"
-                          : "Your admin password (for confirmation)"}
-                        <input
-                          type="password"
-                          value={pwCurrent}
-                          onChange={(e) => setPwCurrent(e.target.value)}
-                          placeholder={isSelf ? "Current password" : "Enter your password"}
-                          style={{ width: "100%" }}
-                        />
-                      </label>
-                    ) : null}
+                  return (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {showCurrentField ? (
+                        <label style={{ fontSize: 12 }}>
+                          {isSelf
+                            ? "Your current password"
+                            : "Your admin password (for confirmation)"}
+                          <input
+                            type="password"
+                            value={pwCurrent}
+                            onChange={(e) => setPwCurrent(e.target.value)}
+                            placeholder={isSelf ? "Current password" : "Enter your password"}
+                            style={{ width: "100%" }}
+                          />
+                        </label>
+                      ) : null}
 
-                    {isSelf ? (
-                      <label style={{ fontSize: 12 }}>
-                        New password
-                        <input
-                          type="password"
-                          value={pwNew}
-                          onChange={(e) => setPwNew(e.target.value)}
-                          placeholder="New password"
-                          style={{ width: "100%" }}
-                        />
-                      </label>
-                    ) : (
-                      <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: 10, background: "#f9fafb", display: "grid", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>
-                          Temporary password
-                          {tempPw && tempPwRemaining > 0 ? (
-                            <span style={{ marginLeft: 6, fontWeight: 400, color: "#2563eb" }}>
-                              (expires in {tempPwRemaining}s)
-                            </span>
-                          ) : null}
-                        </div>
-                        {tempPw ? (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <input
-                              type="text"
-                              readOnly
-                              value={tempPw}
-                              style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (typeof navigator !== "undefined" && navigator.clipboard) {
-                                  navigator.clipboard.writeText(tempPw).catch(() => {});
-                                }
-                              }}
-                              className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                            >
-                              Copy
-                            </button>
+                      {isSelf ? (
+                        <label style={{ fontSize: 12 }}>
+                          New password
+                          <input
+                            type="password"
+                            value={pwNew}
+                            onChange={(e) => setPwNew(e.target.value)}
+                            placeholder="New password"
+                            style={{ width: "100%" }}
+                          />
+                        </label>
+                      ) : (
+                        <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: 10, background: "#f9fafb", display: "grid", gap: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>
+                            Temporary password
+                            {tempPw && tempPwRemaining > 0 ? (
+                              <span style={{ marginLeft: 6, fontWeight: 400, color: "#2563eb" }}>
+                                (expires in {tempPwRemaining}s)
+                              </span>
+                            ) : null}
+                          </div>
+                          {tempPw ? (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <input
+                                type="text"
+                                readOnly
+                                value={tempPw}
+                                style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (typeof navigator !== "undefined" && navigator.clipboard) {
+                                    navigator.clipboard.writeText(tempPw).catch(() => {});
+                                  }
+                                }}
+                                className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => primeTempPassword(pwUser)}
+                                className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                              >
+                                Regenerate
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => primeTempPassword(pwUser)}
                               className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
                             >
-                              Regenerate
+                              Generate temporary password
                             </button>
-                          </div>
+                          )}
+                          <p style={{ fontSize: 12, color: "#64748b" }}>
+                            Share this password securely. After login the user should change it immediately.
+                          </p>
+                        </div>
+                      )}
+
+                      {pwMsg ? (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: String(pwMsg).toLowerCase().includes("fail") || String(pwMsg).toLowerCase().includes("error")
+                              ? "#b91c1c"
+                              : "#16a34a",
+                          }}
+                        >
+                          {pwMsg}
+                        </div>
+                      ) : null}
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={closePwModal}
+                          disabled={changePwMut.isPending}
+                          style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6 }}
+                        >
+                          Close
+                        </button>
+                        {isSelf ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!tenantId) {
+                                alert("Set a tenant first");
+                                return;
+                              }
+                              handleUpdateOwnPassword();
+                            }}
+                            disabled={changePwMut.isPending}
+                            style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
+                          >
+                            {changePwMut.isPending ? "Updating…" : "Update password"}
+                          </button>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => primeTempPassword(pwUser)}
-                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
+                            onClick={() => {
+                              if (!tenantId) {
+                                alert("Set a tenant first");
+                                return;
+                              }
+                              handleApplyTempPassword();
+                            }}
+                            disabled={changePwMut.isPending || !tempPw}
+                            style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
                           >
-                            Generate temporary password
+                            {changePwMut.isPending ? "Applying…" : "Apply temporary password"}
                           </button>
                         )}
-                        <p style={{ fontSize: 12, color: "#64748b" }}>
-                          Share this password securely. After login the user should change it immediately.
-                        </p>
                       </div>
-                    )}
-
-                    {pwMsg ? (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: String(pwMsg).toLowerCase().includes("fail") || String(pwMsg).toLowerCase().includes("error")
-                            ? "#b91c1c"
-                            : "#16a34a",
-                        }}
-                      >
-                        {pwMsg}
-                      </div>
-                    ) : null}
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        onClick={closePwModal}
-                        disabled={changePwMut.isPending}
-                        style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "6px 12px", borderRadius: 6 }}
-                      >
-                        Close
-                      </button>
-                      {isSelf ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!tenantId) {
-                              alert("Set a tenant first");
-                              return;
-                            }
-                            handleUpdateOwnPassword();
-                          }}
-                          disabled={changePwMut.isPending}
-                          style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
-                        >
-                          {changePwMut.isPending ? "Updating…" : "Update password"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!tenantId) {
-                              alert("Set a tenant first");
-                              return;
-                            }
-                            handleApplyTempPassword();
-                          }}
-                          disabled={changePwMut.isPending || !tempPw}
-                          style={{ background: "#2563eb", color: "#fff", padding: "6px 12px", borderRadius: 6, border: "1px solid transparent", opacity: changePwMut.isPending ? 0.6 : 1 }}
-                        >
-                          {changePwMut.isPending ? "Applying…" : "Apply temporary password"}
-                        </button>
-                      )}
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
+              </div>
             </div>
-          </div>
-                ) : null}
-      </div>
+          ) : null}
+        </div>
       )}
     </RequireAuth>
   );
