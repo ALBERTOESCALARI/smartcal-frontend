@@ -37,6 +37,15 @@ export default function ClockPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
+  // Keep a stable view of the active tenant for this session
+  const tenantId = useMemo(() => {
+    try {
+      return getActiveTenantId() || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Load session user once on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -69,7 +78,7 @@ export default function ClockPage() {
 
   // Discover currently active shift (if any) for the logged in user
   useEffect(() => {
-    if (!sessionUser?.id) {
+    if (!sessionUser?.id || !tenantId) {
       setActiveShift(null);
       return;
     }
@@ -79,8 +88,6 @@ export default function ClockPage() {
 
     const loadActiveShift = async () => {
       try {
-        const tenantId = getActiveTenantId();
-        if (!tenantId) return;
         const shifts = await fetchShifts(tenantId, { user_id: sessionUser.id });
         const now = Date.now();
         const current = shifts.find((shift) => {
@@ -103,7 +110,7 @@ export default function ClockPage() {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [sessionUser?.id, status?.clocked_in]);
+  }, [sessionUser?.id, status?.clocked_in, tenantId]);
 
   useEffect(() => {
     if (!sessionUser?.id) {
@@ -183,7 +190,6 @@ export default function ClockPage() {
   }
 
   // Poll status so the banner flips quickly after clock in/out
-  // Poll status so the banner flips quickly after clock in/out
   useEffect(() => {
     if (!sessionUser) return;
 
@@ -260,37 +266,49 @@ export default function ClockPage() {
       <main className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Clock In / Out</h1>
-          <p className="text-sm text-slate-600">
-            Location access may be requested to enforce geofencing for your shift.
-          </p>
+          {!tenantId ? (
+            <p className="text-sm text-amber-700">
+              No tenant selected. Choose a tenant before using the clock.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">
+              Location access may be requested to enforce geofencing for your shift.
+            </p>
+          )}
         </header>
 
         <Card className="space-y-3 p-4">
           {hydrated && canRenderControls ? (
-            <>
-              {status ? (
-               status.clocked_in ?(
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-green-600">✅ You are clocked in</p>
-                    <p className="text-sm font-mono text-slate-700">
-                      {elapsed || "00:00:00"}
-                    </p>
-                  </div>
-                ) : ( 
-                     <p className="font-medium text-slate-600">⏸ You are clocked out</p>
-                )
-              ) : (
-                <p className="text-slate-500">Loading status…</p>
-              )}
+            tenantId ? (
+              <>
+                {status ? (
+                  status.clocked_in ? (
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-green-600">✅ You are clocked in</p>
+                      <p className="text-sm font-mono text-slate-700">
+                        {elapsed || "00:00:00"}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="font-medium text-slate-600">⏸ You are clocked out</p>
+                  )
+                ) : (
+                  <p className="text-slate-500">Loading status…</p>
+                )}
 
-              <ClockControls
-                currentUserId={sessionUser!.id}
-                currentUserRole={sessionUser!.role}
-                shiftId={activeShift?.id}
-                assignedUserId={activeShift?.user_id ?? null}
-                className="w-full"
-              />
-            </>
+                <ClockControls
+                  currentUserId={sessionUser!.id}
+                  currentUserRole={sessionUser!.role}
+                  shiftId={activeShift?.id}
+                  assignedUserId={activeShift?.user_id ?? null}
+                  className="w-full"
+                />
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Select a tenant to enable clock actions.
+              </p>
+            )
           ) : (
             <p className="text-sm text-slate-500">Loading your profile…</p>
           )}
@@ -308,12 +326,14 @@ export default function ClockPage() {
             <p className="text-sm text-red-600">{historyError}</p>
           ) : sortedHistory.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[32rem] text-sm">
+              <table className="w-full min-w-[40rem] text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                     <th className="pb-2 pr-4 font-medium">Date</th>
                     <th className="pb-2 pr-4 font-medium">Clock in</th>
-                    <th className="pb-2 font-medium">Clock out</th>
+                    <th className="pb-2 pr-4 font-medium">Clock out</th>
+                    <th className="pb-2 pr-4 font-medium">In map</th>
+                    <th className="pb-2 font-medium">Out map</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -327,6 +347,7 @@ export default function ClockPage() {
                       : "—";
                     const inLocation = deriveLocation(entry, "in");
                     const outLocation = deriveLocation(entry, "out");
+
                     return (
                       <tr key={entry.id} className="align-top">
                         <td className="py-3 pr-4 text-slate-700">{dateLabel}</td>
@@ -349,7 +370,7 @@ export default function ClockPage() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="py-3 text-slate-700">
+                        <td className="py-3 pr-4 text-slate-700">
                           {clockOutDate ? timeFormatter.format(clockOutDate) : "—"}
                           {outLocation.label ? (
                             <div className="text-xs text-slate-500">
@@ -367,6 +388,36 @@ export default function ClockPage() {
                               )}
                             </div>
                           ) : null}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {inLocation.href ? (
+                            <a
+                              href={inLocation.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center rounded border px-2 py-1 text-xs underline"
+                              title="Open clock-in location"
+                            >
+                              Open
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          {outLocation.href ? (
+                            <a
+                              href={outLocation.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center rounded border px-2 py-1 text-xs underline"
+                              title="Open clock-out location"
+                            >
+                              Open
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
                         </td>
                       </tr>
                     );

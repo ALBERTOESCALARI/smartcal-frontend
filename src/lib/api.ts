@@ -638,3 +638,12 @@ export async function listTenantTimeEntries(
 export async function listMyTimeEntries(from?: string, to?: string) {
   return getMyTimeEntries({ startISO: from, endISO: to });
 }
+
+// === Optional helpers (safe, additive) ===
+export function setActAsTenant(tenantId: string) {
+  try { sessionStorage.setItem("act_as_tenant_id", tenantId); } catch {}
+}
+
+export function clearActAsTenant() {
+  try { sessionStorage.removeItem("act_as_tenant_id"); } catch {}
+}

@@ -1,11 +1,11 @@
 "use client";
-
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import TenantSwitcher from "@/components/TenantSwitcher";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/use-toast";
@@ -463,8 +463,9 @@ export default function AppShell({ children }: Readonly<AppShellProps>) {
 
           {/* Right side actions */}
           <div className="flex items-center gap-2">
-            {RightActions}
-          </div>
+          {me?.role === "superadmin" ? <TenantSwitcher /> : null}
+          {RightActions}
+        </div>
         </div>
       </header>
 

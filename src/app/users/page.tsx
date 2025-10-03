@@ -196,8 +196,6 @@ function makeTempPassword(): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// Local fetcher that supports include_inactive (keeps your shared API untouched)
-// ────────────────────────────────────────────────────────────────────────────────
 type UserRow = User & { is_active?: boolean };
 
 async function fetchUsersApi(tenantId: string, includeInactive: boolean): Promise<UserRow[]> {
@@ -214,6 +212,7 @@ async function fetchUsersApi(tenantId: string, includeInactive: boolean): Promis
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  headers["X-Tenant-ID"] = tenantId; // ✅ add header for consistency
 
   const res = await fetch(url, { credentials: "include", headers });
   if (!res.ok) {
@@ -270,10 +269,11 @@ function BulkImportPanel({ tenantId, onDone }: { tenantId: string; onDone?: () =
         {msg ? <div style={{ fontSize: 12 }}>{msg}</div> : null}
       </div>
       <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
-        Body must be an object with <code>users</code> array. Each row requires
-        <code> email</code> and <code> employee_id</code>; optional <code>name</code>,
-        <code> role</code> (defaults to <code>member</code>), and <code>credentials</code> (<code>EMT</code> or <code>Paramedic</code>).
-      </div>
+    Body must be an object with <code>users</code> array. Each row requires{" "}
+    <code>email</code> and <code>employee_id</code>; optional <code>name</code>,{" "}
+   <code>role</code> (defaults to <code>member</code>), and{" "}
+    <code>credentials</code> (<code>EMT</code> or <code>Paramedic</code>).
+    </div>
     </div>
   );
 }
@@ -720,11 +720,11 @@ export default function UsersPage() {
       alert("This account cannot be deleted.");
       return;
     }
-    if (!confirm("Delete this user?")) return;
+    if (!confirm("Deactivate this user?")) return;
     deleteMut.mutate(id);
   }
 
-  async function handleReactivate(id: string) { // NEW
+  async function handleReactivate(id: string) {
     if (!tenantId) return alert("Set a tenant first");
     const base =
       (process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -734,10 +734,11 @@ export default function UsersPage() {
     const url = `${base || ""}/users/${encodeURIComponent(id)}/reactivate?tenant_id=${encodeURIComponent(tenantId)}`;
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    headers["X-Tenant-ID"] = tenantId;
 
-    const res = await fetch(url, { method: "POST", credentials: "include", headers });
+    const res = await fetch(url, { credentials: "include", headers });
     if (!res.ok) {
       const text = await res.text();
       alert(text || `Failed to reactivate (${res.status})`);
@@ -903,7 +904,7 @@ export default function UsersPage() {
               <div style={{ fontSize: 12, color: "#16a34a" }}>
                 User created successfully
                 {generatedPw ? (
-                  <span style={{ marginLeft: 6 }}>
+                  <span className="ml-2">
                     · Temp password: <code>{generatedPw}</code>
                     <button
                       type="button"
@@ -917,7 +918,6 @@ export default function UsersPage() {
                         }
                       }}
                       className="ml-2 rounded-md px-2 py-1 text-xs font-medium bg-white border hover:bg-neutral-50"
-                      style={{ marginLeft: 8 }}
                     >
                       {copiedPw ? "Copied!" : "Copy"}
                     </button>
@@ -1249,62 +1249,71 @@ export default function UsersPage() {
                           </select>
                         </td>
                         <td style={td}>
-                          {(() => {
-                            const patch = edits[u.id];
-                            const dirty = Boolean(
-                              patch &&
-                              (patch.email !== undefined ||
-                                patch.name !== undefined ||
-                                patch.role !== undefined ||
-                                patch.credentials !== undefined)
-                            );
-                            const disabled = pending || !tenantId || !dirty;
-                            return (
-                              <button onClick={() => handleSaveRow(u)} disabled={disabled} style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}>
-                                {pending ? "Saving…" : "Save"}
-                              </button>
-                            );
-                          })()}
-                          <button onClick={() => openPwModal(u)} style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }} disabled={!tenantId}>
-                            Change password
-                          </button>
-                          {!protectedUser ? (
-                            u.is_active !== false ? (
-                              <button
-                                onClick={() => handleDelete(u.id)}
-                                style={{ marginLeft: 8, background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }}
-                                disabled={deleteMut.isPending || !tenantId}
-                              >
-                                {deleteMut.isPending ? "Deleting…" : "Delete"}
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleReactivate(u.id)}
-                                style={{ marginLeft: 8, background: "#16a34a", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent" }}
-                                disabled={!tenantId}
-                              >
-                                Reactivate
-                              </button>
-                            )
-                          ) : (
-                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>Deletion locked</span>
-                          )}
-                          {Boolean(u.is_locked) && (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                            {(() => {
+                              const patch = edits[u.id];
+                              const dirty = Boolean(
+                                patch &&
+                                (patch.email !== undefined ||
+                                  patch.name !== undefined ||
+                                  patch.role !== undefined ||
+                                  patch.credentials !== undefined)
+                              );
+                              const disabled = pending || !tenantId || !dirty;
+                              return (
+                                <button onClick={() => handleSaveRow(u)} disabled={disabled} style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}>
+                                  {pending ? "Saving…" : "Save"}
+                                </button>
+                              );
+                            })()}
+
                             <button
-                              onClick={() => unlockMut.mutate({ id: u.id })}
-                              style={{ marginLeft: 8, background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
-                              disabled={
-                                !tenantId ||
-                                (unlockMut.isPending &&
-                                  unlockMut.variables?.id === u.id)
-                              }
+                              onClick={() => openPwModal(u)}
+                              style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
+                              disabled={!tenantId}
                             >
-                              {unlockMut.isPending &&
-                              unlockMut.variables?.id === u.id
-                                ? "Unlocking…"
-                                : "Unlock"}
+                              Change password
                             </button>
-                          )}
+
+                            {!protectedUser ? (
+                              u.is_active !== false ? (
+                                <button
+                                  onClick={() => handleDelete(u.id)}
+                                  style={{ background: "#dc2626", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent", opacity: deleteMut.isPending ? 0.6 : 1 }}
+                                  disabled={deleteMut.isPending || !tenantId}
+                                >
+                                  {deleteMut.isPending ? "Deactivating…" : "Deactivate"}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleReactivate(u.id)}
+                                  style={{ background: "#16a34a", color: "#fff", padding: "4px 10px", borderRadius: 6, border: "1px solid transparent" }}
+                                  disabled={!tenantId}
+                                >
+                                  Reactivate
+                                </button>
+                              )
+                            ) : (
+                              <span style={{ fontSize: 12, color: "#64748b" }}>Deletion locked</span>
+                            )}
+
+                            {Boolean(u.is_locked) && (
+                              <button
+                                onClick={() => unlockMut.mutate({ id: u.id })}
+                                style={{ background: "#ffffff", color: "#111827", border: "1px solid #e5e7eb", padding: "4px 10px", borderRadius: 6 }}
+                                disabled={
+                                  !tenantId ||
+                                  (unlockMut.isPending &&
+                                    unlockMut.variables?.id === u.id)
+                                }
+                              >
+                                {unlockMut.isPending &&
+                                unlockMut.variables?.id === u.id
+                                  ? "Unlocking…"
+                                  : "Unlock"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

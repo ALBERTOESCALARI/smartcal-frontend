@@ -235,15 +235,15 @@ export default function UnitsPage() {
                     <code className="opacity-60">{String(u.id).slice(0, 8)}…</code>
                     {isAdmin && (
                       <Button
-                        variant="destructive"
-                        size="sm"
+                       variant="destructive"
+                       size="sm"
                         disabled={delMut.isPending}
                         onClick={() => {
-                          if (!confirm(`Delete unit \"${u.name}\"?`)) return;
-                          delMut.mutate(u.id);
-                        }}
-                      >
-                        {delMut.isPending ? "Deleting…" : "Delete"}
+                         if (!confirm(`Deactivate unit \"${u.name}\"?`)) return;
+                        delMut.mutate(u.id);
+                         }}
+                       >
+                         {delMut.isPending ? "Deactivating…" : "Deactivate"}
                       </Button>
                     )}
                   </div>

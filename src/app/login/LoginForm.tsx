@@ -6,17 +6,20 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { setActiveTenantId } from "@/lib/api"; // <-- ADD THIS
 import { login } from "@/lib/auth";
 
 interface LoginFormProps {
   reason?: string;
+  initialTenantId?: string; // 👈 new, optional from URL
 }
 
-export default function LoginForm({ reason }: LoginFormProps) {
+export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [tenantId, setTenantId] = useState(initialTenantId ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +28,13 @@ export default function LoginForm({ reason }: LoginFormProps) {
     setSubmitting(true);
     setError(null);
     try {
+      // login expects (email, password)
       await login(email, password);
+
+      // store tenant for the API layer / app shell
+      setActiveTenantId(tenantId.trim());
+
+      // redirect flow unchanged
       if (password.startsWith("TMP-")) {
         router.replace("/auth/temp-change");
       } else {
@@ -67,6 +76,17 @@ export default function LoginForm({ reason }: LoginFormProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
+            required
+          />
+        </div>
+        <div className="grid gap-1">
+          <label className="text-sm">Tenant ID</label>
+          <input
+            type="text"
+            className="border rounded-md px-3 py-2 text-sm font-mono"
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            placeholder="b046c6ad-527d-45ac-a291-ac485c913912"
             required
           />
         </div>
