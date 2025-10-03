@@ -15,6 +15,7 @@ export type UserHourSummary = {
     sick: number;
     vacation: number;
   };
+  computedEarningsCents?: number | null; // 👈 NEW
 };
 
 type RawUser = {
@@ -52,6 +53,9 @@ type RawHourEntry = {
   pto_accrued?: number | string | null;
   sick_accrued?: number | string | null;
   vacation_accrued?: number | string | null;
+
+  // 👇 backend might return this snake_case
+  computed_earnings_cents?: number | string | null;
 };
 
 type RawUserFallback = {
@@ -113,6 +117,9 @@ function normalizeEntry(entry: RawHourEntry, index: number): UserHourSummary {
       sick: resolveAccrual(accruals?.sick ?? entry.sick_accrued ?? null),
       vacation: resolveAccrual(accruals?.vacation ?? entry.vacation_accrued ?? null),
     },
+    computedEarningsCents: entry.computed_earnings_cents != null
+      ? safeNumber(entry.computed_earnings_cents)
+      : null, // 👈 NEW mapping
   };
 }
 
@@ -131,6 +138,7 @@ function normalizeFromUser(user: RawUserFallback, index: number): UserHourSummar
     sickHours: 0,
     vacationHours: 0,
     accruals: { pto: 0, sick: 0, vacation: 0 },
+    computedEarningsCents: null, // 👈 NEW, default when user has no entries yet
   };
 }
 
@@ -144,7 +152,7 @@ export async function fetchUserHours(tenantId: string): Promise<UserHourSummary[
 
   try {
     const { data } = await api.get<RawHourEntry[]>("/hours", {
-      params: { tenant_id: tenantId },
+      params: { tenant_id: tenantId, include_earnings: "true" }, // 👈 ask backend to include
     });
     if (!Array.isArray(data) || data.length === 0) {
       return [];
@@ -152,10 +160,11 @@ export async function fetchUserHours(tenantId: string): Promise<UserHourSummary[
     return data.map((item, index) => normalizeEntry(item ?? {}, index));
   } catch (error) {
     if (!isNotFound(error)) {
-      // If backend returns empty object, still provide fallback zeros
       const maybeArray = (error as { response?: { data?: unknown } })?.response?.data;
       if (Array.isArray(maybeArray)) {
-        return maybeArray.map((item, index) => normalizeEntry((item ?? {}) as RawHourEntry, index));
+        return maybeArray.map((item, index) =>
+          normalizeEntry((item ?? {}) as RawHourEntry, index)
+        );
       }
       throw error;
     }

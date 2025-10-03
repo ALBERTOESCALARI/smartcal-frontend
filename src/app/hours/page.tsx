@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { fetchUserHours, saveAccruals, type UserHourSummary } from "@/features/timekeeping/api";
 import { useSession } from "@/features/auth/useSession";
+import { fetchUserHours, saveAccruals, type UserHourSummary } from "@/features/timekeeping/api";
 import { getTenantId } from "@/lib/tenants";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -31,8 +31,12 @@ function formatHours(value: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-type DraftAccrual = { pto: string; sick: string; vacation: string };
+function formatCents(cents?: number | null, currency: string = "USD") {
+  if (typeof cents !== "number" || Number.isNaN(cents)) return "—";
+  return (cents / 100).toLocaleString(undefined, { style: "currency", currency });
+}
 
+type DraftAccrual = { pto: string; sick: string; vacation: string };
 type DraftState = Record<string, DraftAccrual>;
 
 const numberHeaderClass = "px-4 py-3 font-medium text-right";
@@ -74,6 +78,7 @@ export default function HoursPage() {
 
   const hoursQuery = useQuery<UserHourSummary[]>({
     queryKey: ["timekeeping", "hours", tenantId],
+    // fetchUserHours internally requests include_earnings=true (non-breaking)
     queryFn: () => fetchUserHours(tenantId ?? ""),
     enabled: Boolean(tenantId) && isAdmin,
     staleTime: 60 * 1000,
@@ -86,12 +91,12 @@ export default function HoursPage() {
     setDrafts((prev) => {
       const next: DraftState = {};
       for (const row of hoursQuery.data ?? []) {
-        const id = row.userId;
+        const id = (row as any).userId;
         const existing = prev[id];
         next[id] = {
-          pto: existing?.pto ?? String(row.accruals?.pto ?? 0),
-          sick: existing?.sick ?? String(row.accruals?.sick ?? 0),
-          vacation: existing?.vacation ?? String(row.accruals?.vacation ?? 0),
+          pto: existing?.pto ?? String((row as any).accruals?.pto ?? 0),
+          sick: existing?.sick ?? String((row as any).accruals?.sick ?? 0),
+          vacation: existing?.vacation ?? String((row as any).accruals?.vacation ?? 0),
         };
       }
       return next;
@@ -112,14 +117,14 @@ export default function HoursPage() {
     onSuccess: (updated) => {
       queryClient.setQueryData<UserHourSummary[]>(["timekeeping", "hours", tenantId], (current) => {
         if (!Array.isArray(current)) return current;
-        return current.map((item) => (item.userId === updated.userId ? { ...item, ...updated } : item));
+        return current.map((item: any) => (item.userId === (updated as any).userId ? { ...item, ...updated } : item));
       });
       setDrafts((prev) => ({
         ...prev,
-        [updated.userId]: {
-          pto: String(updated.accruals.pto ?? 0),
-          sick: String(updated.accruals.sick ?? 0),
-          vacation: String(updated.accruals.vacation ?? 0),
+        [(updated as any).userId]: {
+          pto: String((updated as any).accruals?.pto ?? 0),
+          sick: String((updated as any).accruals?.sick ?? 0),
+          vacation: String((updated as any).accruals?.vacation ?? 0),
         },
       }));
       toast({ title: "Accruals updated" });
@@ -139,8 +144,18 @@ export default function HoursPage() {
   });
 
   const rows = hoursQuery.data ?? [];
-
   const isSaving = saveMutation.isPending;
+
+  // Compute a header total (non-breaking; shows 0 if backend doesn't send earnings)
+  const totalCents = rows.reduce((sum: number, r: any) => {
+    const cents =
+      typeof r.computed_earnings_cents === "number"
+        ? r.computed_earnings_cents
+        : typeof r.computedEarningsCents === "number"
+        ? r.computedEarningsCents
+        : 0;
+    return sum + cents;
+  }, 0);
 
   if (!isAdmin) {
     return (
@@ -159,7 +174,7 @@ export default function HoursPage() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold">Hours & Accruals</h1>
+            <h1 className="text-xl font-semibold">Hours &amp; Accruals</h1>
             <p className="text-sm text-muted-foreground">
               Track worked hours and leave balances for your team.
             </p>
@@ -170,6 +185,9 @@ export default function HoursPage() {
                 Agency: {tenantId}
               </span>
             )}
+            <span className="rounded-full border border-muted-foreground/30 px-3 py-1 text-xs font-mono tabular-nums">
+              Total: {(totalCents / 100).toLocaleString(undefined, { style: "currency", currency: "USD" })}
+            </span>
             <Button
               variant="outline"
               onClick={() => hoursQuery.refetch()}
@@ -197,7 +215,7 @@ export default function HoursPage() {
         ) : (
           <Card className="p-0 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-sm">
+              <table className="w-full min-w-[880px] border-collapse text-sm">
                 <thead className="bg-muted/60">
                   <tr className="text-left">
                     <th className="px-4 py-3 font-medium">Employee</th>
@@ -209,6 +227,7 @@ export default function HoursPage() {
                     <th className={accrualHeaderClass} colSpan={3}>
                       Accruals (defaults to 0)
                     </th>
+                    <th className={numberHeaderClass}>Earnings</th>
                     <th className="px-4 py-3" />
                   </tr>
                   <tr className="text-left text-xs text-muted-foreground">
@@ -221,13 +240,22 @@ export default function HoursPage() {
                     <th className={numberSubheaderClass}>PTO</th>
                     <th className={numberSubheaderClass}>Sick</th>
                     <th className={numberSubheaderClass}>Vacation</th>
+                    <th className={numberSubheaderClass}>USD</th>
                     <th className="px-4 pb-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
+                  {rows.map((row: any) => {
                     const draft = drafts[row.userId] ?? { pto: "0", sick: "0", vacation: "0" };
                     const pending = isSaving && savingUserId === row.userId;
+                    // Support either camelCase or snake_case from the API
+                    const cents: number | undefined =
+                      typeof row.computed_earnings_cents === "number"
+                        ? row.computed_earnings_cents
+                        : typeof row.computedEarningsCents === "number"
+                        ? row.computedEarningsCents
+                        : undefined;
+
                     return (
                       <tr key={row.userId} className="border-t">
                         <td className="px-4 py-3 align-middle">
@@ -238,21 +266,11 @@ export default function HoursPage() {
                             </span>
                           </div>
                         </td>
-                        <td className={numberCellClass}>
-                          {formatHours(row.regularHours)}
-                        </td>
-                        <td className={numberCellClass}>
-                          {formatHours(row.overtimeHours)}
-                        </td>
-                        <td className={numberCellClass}>
-                          {formatHours(row.ptoHours)}
-                        </td>
-                        <td className={numberCellClass}>
-                          {formatHours(row.sickHours)}
-                        </td>
-                        <td className={numberCellClass}>
-                          {formatHours(row.vacationHours)}
-                        </td>
+                        <td className={numberCellClass}>{formatHours(row.regularHours)}</td>
+                        <td className={numberCellClass}>{formatHours(row.overtimeHours)}</td>
+                        <td className={numberCellClass}>{formatHours(row.ptoHours)}</td>
+                        <td className={numberCellClass}>{formatHours(row.sickHours)}</td>
+                        <td className={numberCellClass}>{formatHours(row.vacationHours)}</td>
                         <td className={accrualCellClass}>
                           <Input
                             inputMode="decimal"
@@ -301,6 +319,7 @@ export default function HoursPage() {
                             className={accrualInputClass}
                           />
                         </td>
+                        <td className={numberCellClass}>{formatCents(cents, "USD")}</td>
                         <td className={actionCellClass}>
                           <Button
                             size="sm"
