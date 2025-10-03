@@ -22,7 +22,8 @@ export interface TimeEntryOut {
   map_url?: string | null;
   created_at: string;
   updated_at: string;
-  earnings?: number | null;
+  earnings?: number | null;           // legacy float (kept for compatibility)
+  earnings_cents?: number | null;     // 👈 NEW: authoritative cents from backend
 }
 
 export interface ClockStatus {
