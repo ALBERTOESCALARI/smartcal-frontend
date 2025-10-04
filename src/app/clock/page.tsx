@@ -167,26 +167,97 @@ export default function ClockPage() {
     });
   }, [history]);
 
+  // Safer, more flexible location derivation
   function deriveLocation(entry: TimeEntryOut, phase: "in" | "out") {
     const prefix = phase === "in" ? "clock_in" : "clock_out";
-    const locationValue = (entry as any)[`${prefix}_location`] ?? entry.location ?? null;
-    const lat = (entry as any)[`${prefix}_latitude`] ?? entry.latitude ?? null;
-    const lng = (entry as any)[`${prefix}_longitude`] ?? entry.longitude ?? null;
-    const mapUrl = (entry as any)[`${prefix}_map_url`] ?? entry.map_url ?? null;
+
+    const locationValue =
+      (entry as any)[`${prefix}_location`] ??
+      (entry as any).location ??
+      null;
+
+    // Accept alternative lat/lng field names and strings
+    let lat: any =
+      (entry as any)[`${prefix}_latitude`] ??
+      (entry as any)[`${prefix}_lat`] ??
+      (entry as any).latitude ??
+      null;
+
+    let lng: any =
+      (entry as any)[`${prefix}_longitude`] ??
+      (entry as any)[`${prefix}_lon`] ??
+      (entry as any)[`${prefix}_lng`] ??
+      (entry as any).longitude ??
+      null;
+
+    const mapUrl =
+      (entry as any)[`${prefix}_map_url`] ??
+      (entry as any).map_url ??
+      null;
+
+    // Coerce strings to numbers if needed
+    if (typeof lat === "string") lat = Number(lat);
+    if (typeof lng === "string") lng = Number(lng);
 
     let label: string | undefined;
-    if (typeof locationValue === "string" && locationValue) label = locationValue;
-    if (!label && typeof lat === "number" && typeof lng === "number") {
+    if (typeof locationValue === "string" && locationValue) {
+      label = locationValue;
+    }
+    if (
+      !label &&
+      typeof lat === "number" &&
+      typeof lng === "number" &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
       label = `${lat.toFixed(6)},${lng.toFixed(6)}`;
     }
 
     let href: string | undefined;
-    if (typeof mapUrl === "string" && mapUrl) href = mapUrl;
-    else if (typeof lat === "number" && typeof lng === "number") {
-      href = `https://www.google.com/maps?q=${lat},${lng}`;
+    if (typeof mapUrl === "string" && mapUrl) {
+      href = mapUrl;
+    } else if (
+      typeof lat === "number" &&
+      typeof lng === "number" &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+      const q = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+      href = `https://www.google.com/maps?q=${encodeURIComponent(q)}`;
     }
 
     return { label, href };
+  }
+
+  // 🔹 NEW: get coordinates string for link text
+  function getCoordString(entry: TimeEntryOut, phase: "in" | "out") {
+    const prefix = phase === "in" ? "clock_in" : "clock_out";
+
+    let lat: any =
+      (entry as any)[`${prefix}_latitude`] ??
+      (entry as any)[`${prefix}_lat`] ??
+      (entry as any).latitude ??
+      null;
+
+    let lng: any =
+      (entry as any)[`${prefix}_longitude`] ??
+      (entry as any)[`${prefix}_lon`] ??
+      (entry as any)[`${prefix}_lng`] ??
+      (entry as any).longitude ??
+      null;
+
+    if (typeof lat === "string") lat = Number(lat);
+    if (typeof lng === "string") lng = Number(lng);
+
+    if (
+      typeof lat === "number" &&
+      typeof lng === "number" &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+      return `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    }
+    return null;
   }
 
   // Poll status so the banner flips quickly after clock in/out
@@ -326,16 +397,17 @@ export default function ClockPage() {
             <p className="text-sm text-red-600">{historyError}</p>
           ) : sortedHistory.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] text-sm">
+              <table className="w-full min-w-[40rem] text-sm border-collapse">
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b">
                     <th className="pb-2 pr-4 font-medium">Date</th>
                     <th className="pb-2 pr-4 font-medium">Clock in</th>
                     <th className="pb-2 pr-4 font-medium">Clock out</th>
-                    <th className="pb-2 pr-4 font-medium">In map</th>
-                    <th className="pb-2 font-medium">Out map</th>
+                    <th className="pb-2 pr-4 font-medium text-center">In map</th>
+                    <th className="pb-2 font-medium text-center">Out map</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-200">
                   {sortedHistory.map((entry) => {
                     const clockInDate = entry.clock_in ? new Date(entry.clock_in) : null;
@@ -349,18 +421,19 @@ export default function ClockPage() {
                     const outLocation = deriveLocation(entry, "out");
 
                     return (
-                      <tr key={entry.id} className="align-top">
+                      <tr key={entry.id} className="align-middle hover:bg-slate-50">
                         <td className="py-3 pr-4 text-slate-700">{dateLabel}</td>
+
                         <td className="py-3 pr-4 text-slate-700">
                           {clockInDate ? timeFormatter.format(clockInDate) : "—"}
                           {inLocation.label ? (
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-slate-500 mt-1">
                               {inLocation.href ? (
                                 <a
                                   href={inLocation.href}
                                   target="_blank"
-                                  rel="noreferrer"
-                                  className="underline"
+                                  rel="noopener noreferrer"
+                                  className="underline hover:text-blue-600"
                                 >
                                   {inLocation.label}
                                 </a>
@@ -370,16 +443,17 @@ export default function ClockPage() {
                             </div>
                           ) : null}
                         </td>
+
                         <td className="py-3 pr-4 text-slate-700">
                           {clockOutDate ? timeFormatter.format(clockOutDate) : "—"}
                           {outLocation.label ? (
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-slate-500 mt-1">
                               {outLocation.href ? (
                                 <a
                                   href={outLocation.href}
                                   target="_blank"
-                                  rel="noreferrer"
-                                  className="underline"
+                                  rel="noopener noreferrer"
+                                  className="underline hover:text-blue-600"
                                 >
                                   {outLocation.label}
                                 </a>
@@ -389,31 +463,35 @@ export default function ClockPage() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="py-3 pr-4">
+
+                        {/* Clock-In Map (coordinates as link text) */}
+                        <td className="py-3 pr-4 text-center align-middle">
                           {inLocation.href ? (
                             <a
                               href={inLocation.href}
                               target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded border px-2 py-1 text-xs underline"
-                              title="Open clock-in location"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+                              title="Open clock-in location on map"
                             >
-                              Open
+                              {getCoordString(entry, "in") ?? "—"}
                             </a>
                           ) : (
                             <span className="text-xs text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="py-3">
+
+                        {/* Clock-Out Map (coordinates as link text) */}
+                        <td className="py-3 text-center align-middle">
                           {outLocation.href ? (
                             <a
                               href={outLocation.href}
                               target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded border px-2 py-1 text-xs underline"
-                              title="Open clock-out location"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+                              title="Open clock-out location on map"
                             >
-                              Open
+                              {getCoordString(entry, "out") ?? "—"}
                             </a>
                           ) : (
                             <span className="text-xs text-slate-400">—</span>
