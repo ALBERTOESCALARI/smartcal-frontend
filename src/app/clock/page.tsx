@@ -464,39 +464,39 @@ export default function ClockPage() {
                           ) : null}
                         </td>
 
-                        {/* Clock-In Map (coordinates as link text) */}
-                        <td className="py-3 pr-4 text-center align-middle">
-                          {inLocation.href ? (
-                            <a
-                              href={inLocation.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-                              title="Open clock-in location on map"
-                            >
-                              {getCoordString(entry, "in") ?? "—"}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
+                        {/* Clock-In Map (coordinates link) */}
+<td className="py-3 pr-4 text-center align-middle">
+  {inLocation.href ? (
+    <a
+      href={inLocation.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+      title="Open clock-in location on map"
+    >
+      {getCoordString(entry, "in") ?? "—"}
+    </a>
+  ) : (
+    <span className="text-xs text-slate-400">—</span>
+  )}
+</td>
 
-                        {/* Clock-Out Map (coordinates as link text) */}
-                        <td className="py-3 text-center align-middle">
-                          {outLocation.href ? (
-                            <a
-                              href={outLocation.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-                              title="Open clock-out location on map"
-                            >
-                              {getCoordString(entry, "out") ?? "—"}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
+{/* Clock-Out Map (coordinates link) */}
+<td className="py-3 text-center align-middle">
+  {outLocation.href ? (
+    <a
+      href={outLocation.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+      title="Open clock-out location on map"
+    >
+      {getCoordString(entry, "out") ?? "—"}
+    </a>
+  ) : (
+    <span className="text-xs text-slate-400">—</span>
+  )}
+</td>
                       </tr>
                     );
                   })}
