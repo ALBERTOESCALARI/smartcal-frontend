@@ -1,4 +1,5 @@
 "use client";
+"use client";
 
 import RequireAuth from "@/components/require-auth";
 import ClockControls from "@/components/time/clock-controls";
@@ -9,7 +10,7 @@ import {
   getClockStatus,
   getMyTimeEntries,
   type TimeEntryOut,
-} from "@/lib/api"; // must exist in api.ts
+} from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 
@@ -24,6 +25,75 @@ function mapApiToClockStatus(api: { status: "clocked_in" | "clocked_out"; open_e
     clocked_in: api.status === "clocked_in",
     clock_in: api.open_entry?.clock_in,
   };
+}
+
+/** Parse "lat,lon" freeform strings. Returns [lat,lng] or null. */
+function parseCoordString(s?: unknown): [number, number] | null {
+  if (typeof s !== "string") return null;
+  const m = s.trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return [lat, lng];
+}
+
+/** Try to read coords for a given phase ("in" | "out") from a row with MANY possible shapes. */
+function getPhaseCoords(entry: any, phase: "in" | "out"): [number, number] | null {
+  const p = phase === "in" ? "clock_in" : "clock_out";
+
+  // 1) Try explicit lat/lng numeric fields first
+  let lat =
+    entry?.[`${p}_latitude`] ??
+    entry?.[`${p}_lat`] ??
+    entry?.latitude ??
+    entry?.lat ??
+    null;
+
+  let lng =
+    entry?.[`${p}_longitude`] ??
+    entry?.[`${p}_lon`] ??
+    entry?.[`${p}_lng`] ??
+    entry?.longitude ??
+    entry?.lon ??
+    entry?.lng ??
+    null;
+
+  // Coerce strings to numbers if needed
+  if (typeof lat === "string") lat = Number(lat);
+  if (typeof lng === "string") lng = Number(lng);
+
+  if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)) {
+    return [lat, lng];
+  }
+
+  // 2) Try a location object with latitude/longitude keys
+  const loc = entry?.[`${p}_location`] ?? entry?.location ?? null;
+  if (loc && typeof loc === "object") {
+    let la = loc.latitude ?? loc.lat ?? loc.y ?? null;
+    let ln = loc.longitude ?? loc.lon ?? loc.lng ?? loc.x ?? null;
+    if (typeof la === "string") la = Number(la);
+    if (typeof ln === "string") ln = Number(ln);
+    if (typeof la === "number" && typeof ln === "number" && Number.isFinite(la) && Number.isFinite(ln)) {
+      return [la, ln];
+    }
+  }
+
+  // 3) Try a location string like "28.123,-81.234"
+  const locStr =
+    (typeof loc === "string" ? loc : undefined) ??
+    (typeof entry?.[`${p}_location`] === "string" ? entry?.[`${p}_location`] : undefined);
+  const parsed = parseCoordString(locStr);
+  if (parsed) return parsed;
+
+  // 4) Nothing found
+  return null;
+}
+
+/** Build a Google Maps link for given coords */
+function buildMapsHref(lat: number, lng: number): string {
+  const q = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  return `https://www.google.com/maps?q=${encodeURIComponent(q)}`;
 }
 
 export default function ClockPage() {
@@ -167,136 +237,6 @@ export default function ClockPage() {
     });
   }, [history]);
 
-  // Safer, more flexible location derivation
-  function deriveLocation(entry: TimeEntryOut, phase: "in" | "out") {
-    const prefix = phase === "in" ? "clock_in" : "clock_out";
-
-    const locationValue =
-      (entry as any)[`${prefix}_location`] ??
-      (entry as any).location ??
-      null;
-
-    // Accept alternative lat/lng field names and strings
-    let lat: any =
-      (entry as any)[`${prefix}_latitude`] ??
-      (entry as any)[`${prefix}_lat`] ??
-      (entry as any).latitude ??
-      null;
-
-    let lng: any =
-      (entry as any)[`${prefix}_longitude`] ??
-      (entry as any)[`${prefix}_lon`] ??
-      (entry as any)[`${prefix}_lng`] ??
-      (entry as any).longitude ??
-      null;
-
-    const mapUrl =
-      (entry as any)[`${prefix}_map_url`] ??
-      (entry as any).map_url ??
-      null;
-
-    // Coerce strings to numbers if needed
-    if (typeof lat === "string") lat = Number(lat);
-    if (typeof lng === "string") lng = Number(lng);
-
-    let label: string | undefined;
-    if (typeof locationValue === "string" && locationValue) {
-      label = locationValue;
-    }
-    if (
-      !label &&
-      typeof lat === "number" &&
-      typeof lng === "number" &&
-      Number.isFinite(lat) &&
-      Number.isFinite(lng)
-    ) {
-      label = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-    }
-
-    let href: string | undefined;
-    if (typeof mapUrl === "string" && mapUrl) {
-      href = mapUrl;
-    } else if (
-      typeof lat === "number" &&
-      typeof lng === "number" &&
-      Number.isFinite(lat) &&
-      Number.isFinite(lng)
-    ) {
-      const q = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-      href = `https://www.google.com/maps?q=${encodeURIComponent(q)}`;
-    }
-
-    return { label, href };
-  }
-
-  // 🔹 NEW: get coordinates string for link text
-  function getCoordString(entry: TimeEntryOut, phase: "in" | "out") {
-    const prefix = phase === "in" ? "clock_in" : "clock_out";
-
-    let lat: any =
-      (entry as any)[`${prefix}_latitude`] ??
-      (entry as any)[`${prefix}_lat`] ??
-      (entry as any).latitude ??
-      null;
-
-    let lng: any =
-      (entry as any)[`${prefix}_longitude`] ??
-      (entry as any)[`${prefix}_lon`] ??
-      (entry as any)[`${prefix}_lng`] ??
-      (entry as any).longitude ??
-      null;
-
-    if (typeof lat === "string") lat = Number(lat);
-    if (typeof lng === "string") lng = Number(lng);
-
-    if (
-      typeof lat === "number" &&
-      typeof lng === "number" &&
-      Number.isFinite(lat) &&
-      Number.isFinite(lng)
-    ) {
-      return `${lat.toFixed(6)},${lng.toFixed(6)}`;
-    }
-    return null;
-  }
-
-  // Poll status so the banner flips quickly after clock in/out
-  useEffect(() => {
-    if (!sessionUser) return;
-
-    let cancelled = false;
-    let fastId: number | undefined;
-    let slowId: number | undefined;
-    let slowSwitchTimer: number | undefined;
-
-    const tick = async () => {
-      try {
-        const api = (await getClockStatus()) as {
-          status: "clocked_in" | "clocked_out";
-          open_entry?: { clock_in?: string };
-        };
-        if (!cancelled) setStatus(mapApiToClockStatus(api));
-      } catch {
-        // keep last known state
-      }
-    };
-
-    // kick once immediately, then fast poll for 15s, then slow poll
-    void tick();
-    fastId = window.setInterval(tick, 1000);
-    slowSwitchTimer = window.setTimeout(() => {
-      if (fastId) window.clearInterval(fastId);
-      slowId = window.setInterval(tick, 3000);
-    }, 15000);
-
-    return () => {
-      cancelled = true;
-      if (fastId) window.clearInterval(fastId);
-      if (slowId) window.clearInterval(slowId);
-      if (slowSwitchTimer) window.clearTimeout(slowSwitchTimer);
-    };
-  }, [sessionUser]);
-
   // Derive the start timestamp (ms) from status
   const startMs = useMemo(() => {
     if (!status?.clocked_in || !status.clock_in) return null;
@@ -417,8 +357,10 @@ export default function ClockPage() {
                       : clockOutDate
                       ? dateFormatter.format(clockOutDate)
                       : "—";
-                    const inLocation = deriveLocation(entry, "in");
-                    const outLocation = deriveLocation(entry, "out");
+
+                    // Get coords for each phase
+                    const inCoords = getPhaseCoords(entry as any, "in");
+                    const outCoords = getPhaseCoords(entry as any, "out");
 
                     return (
                       <tr key={entry.id} className="align-middle hover:bg-slate-50">
@@ -426,77 +368,45 @@ export default function ClockPage() {
 
                         <td className="py-3 pr-4 text-slate-700">
                           {clockInDate ? timeFormatter.format(clockInDate) : "—"}
-                          {inLocation.label ? (
-                            <div className="text-xs text-slate-500 mt-1">
-                              {inLocation.href ? (
-                                <a
-                                  href={inLocation.href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline hover:text-blue-600"
-                                >
-                                  {inLocation.label}
-                                </a>
-                              ) : (
-                                inLocation.label
-                              )}
-                            </div>
-                          ) : null}
                         </td>
 
                         <td className="py-3 pr-4 text-slate-700">
                           {clockOutDate ? timeFormatter.format(clockOutDate) : "—"}
-                          {outLocation.label ? (
-                            <div className="text-xs text-slate-500 mt-1">
-                              {outLocation.href ? (
-                                <a
-                                  href={outLocation.href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline hover:text-blue-600"
-                                >
-                                  {outLocation.label}
-                                </a>
-                              ) : (
-                                outLocation.label
-                              )}
-                            </div>
-                          ) : null}
                         </td>
 
-                        {/* Clock-In Map (coordinates link) */}
-<td className="py-3 pr-4 text-center align-middle">
-  {inLocation.href ? (
-    <a
-      href={inLocation.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-      title="Open clock-in location on map"
-    >
-      {getCoordString(entry, "in") ?? "—"}
-    </a>
-  ) : (
-    <span className="text-xs text-slate-400">—</span>
-  )}
-</td>
+                        {/* Clock-In Map (coordinates link only) */}
+                        <td className="py-3 pr-4 text-center align-middle">
+                          {inCoords ? (
+                            <a
+                              href={buildMapsHref(inCoords[0], inCoords[1])}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+                              title="Open clock-in location on map"
+                            >
+                              {`${inCoords[0].toFixed(6)},${inCoords[1].toFixed(6)}`}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
 
-{/* Clock-Out Map (coordinates link) */}
-<td className="py-3 text-center align-middle">
-  {outLocation.href ? (
-    <a
-      href={outLocation.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-      title="Open clock-out location on map"
-    >
-      {getCoordString(entry, "out") ?? "—"}
-    </a>
-  ) : (
-    <span className="text-xs text-slate-400">—</span>
-  )}
-</td>
+                        {/* Clock-Out Map (coordinates link only) */}
+                        <td className="py-3 text-center align-middle">
+                          {outCoords ? (
+                            <a
+                              href={buildMapsHref(outCoords[0], outCoords[1])}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
+                              title="Open clock-out location on map"
+                            >
+                              {`${outCoords[0].toFixed(6)},${outCoords[1].toFixed(6)}`}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
