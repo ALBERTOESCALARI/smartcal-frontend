@@ -23,7 +23,7 @@ export interface TimeEntryOut {
   created_at: string;
   updated_at: string;
   earnings?: number | null;           // legacy float (kept for compatibility)
-  earnings_cents?: number | null;     // 👈 NEW: authoritative cents from backend
+  earnings_cents?: number | null;     // 👈 authoritative cents from backend
 }
 
 export interface ClockStatus {
@@ -647,4 +647,47 @@ export function setActAsTenant(tenantId: string) {
 
 export function clearActAsTenant() {
   try { sessionStorage.removeItem("act_as_tenant_id"); } catch {}
+}
+
+/* ===================== Shifts: delete probe + delete (safe, non-breaking) ===================== */
+
+export type DeleteBlockers = {
+  shift_swap_requests: number;
+  assignments: number;
+  time_entries: number;
+};
+
+export type CanDeleteShiftResp = {
+  shift_id: string;
+  tenant_id: string;
+  can_delete: boolean;
+  blockers: DeleteBlockers;
+};
+
+export async function canDeleteShift(shiftId: string): Promise<CanDeleteShiftResp> {
+  // tenant_id is attached by axios interceptor; no need to add manually
+  const res = await api.get(`/shifts/${shiftId}/can-delete`);
+  return res.data as CanDeleteShiftResp;
+}
+
+export async function deleteShift(shiftId: string): Promise<void> {
+  const res = await api.delete(`/shifts/${shiftId}`, { validateStatus: () => true });
+
+  if (res.status === 204) return;
+
+  // If backend sent a structured 409 with blockers, surface a helpful error
+  if (res.status === 409) {
+    const detail: any = res.data;
+    if (detail?.blockers) {
+      const b = detail.blockers as DeleteBlockers;
+      const msg = `Cannot delete shift.\n- Swap requests: ${b.shift_swap_requests}\n- Assignments: ${b.assignments}\n- Time entries: ${b.time_entries}`;
+      const err = new Error(msg);
+      (err as any).blockers = b;
+      throw err;
+    }
+    throw new Error(detail?.message || "Cannot delete shift (conflict).");
+  }
+
+  // Any other non-2xx: throw a generic error with status
+  throw new Error(`Delete failed: HTTP ${res.status}`);
 }

@@ -1,6 +1,5 @@
 // src/app/shifts/page.tsx
 "use client";
-
 import RequireAuth from "@/components/require-auth";
 import ClockControls from "@/components/time/clock-controls";
 import { Button } from "@/components/ui/button";
@@ -8,38 +7,48 @@ import { Calendar, type DayShift } from "@/components/ui/calendar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { createShift, fetchShifts, getShift, updateShift, type Shift } from "@/features/shifts/api";
+import {
+  canDeleteShift,
+  createShift,
+  deleteShift,
+  fetchShifts,
+  getShift,
+  updateShift,
+  type DeleteBlockers,
+  type Shift,
+} from "@/features/shifts/api";
 import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 // ----- Types & helpers -----
-// Broader shape to capture different backend variants for credentials
-// (we won't rely on all fields existing; they're optional)
 type User = {
   id: string;
   email: string;
   name?: string;
-  employee_id?: string;            // employee code shown in dropdown
-  credential?: string;                 // e.g., "EMT", "Paramedic"
-  primary_credential?: string;         // alt field
-  certification?: string;              // alt field
-  certifications?: string[];           // alt field
-  ems_level?: string;                  // alt field
-  roles?: string[];                    // alt field
-  role?: string;                       // alt field
-  credentials?: string | Array<
+  employee_id?: string;
+  credential?: string;
+  primary_credential?: string;
+  certification?: string;
+  certifications?: string[];
+  ems_level?: string;
+  roles?: string[];
+  role?: string;
+  credentials?:
     | string
-    | {
-        title?: string;
-        name?: string;
-        code?: string;
-        abbreviation?: string;
-        level?: string;
-        type?: string;
-      }
-  >;
+    | Array<
+        | string
+        | {
+            title?: string;
+            name?: string;
+            code?: string;
+            abbreviation?: string;
+            level?: string;
+            type?: string;
+          }
+      >;
 };
 
 async function fetchUsers(tenantId: string) {
@@ -47,7 +56,6 @@ async function fetchUsers(tenantId: string) {
   return data;
 }
 
-// current session user (id, email, role)
 type AuthMeResponse = {
   id?: string;
   user_id?: string;
@@ -55,14 +63,16 @@ type AuthMeResponse = {
   role?: string;
   name?: string;
   employee_id?: string;
-  user?: {
-    id?: string;
-    user_id?: string;
-    email?: string;
-    role?: string;
-    name?: string;
-    employee_id?: string;
-  } | null;
+  user?:
+    | {
+        id?: string;
+        user_id?: string;
+        email?: string;
+        role?: string;
+        name?: string;
+        employee_id?: string;
+      }
+    | null;
 };
 
 type AuthSnapshot = {
@@ -75,7 +85,6 @@ type AuthSnapshot = {
 
 function extractAuthSnapshot(value: unknown): AuthSnapshot {
   if (!value || typeof value !== "object") return {};
-
   const source = value as {
     id?: unknown;
     user_id?: unknown;
@@ -87,7 +96,6 @@ function extractAuthSnapshot(value: unknown): AuthSnapshot {
   };
 
   const snapshot: AuthSnapshot = {};
-
   if (typeof source.id === "string" && source.id) snapshot.id = source.id;
   if (!snapshot.id && typeof source.user_id === "string" && source.user_id) snapshot.id = source.user_id;
   if (typeof source.email === "string" && source.email) snapshot.email = source.email;
@@ -103,7 +111,6 @@ function extractAuthSnapshot(value: unknown): AuthSnapshot {
     snapshot.name = snapshot.name ?? nested.name;
     snapshot.employee_id = snapshot.employee_id ?? nested.employee_id;
   }
-
   return snapshot;
 }
 
@@ -130,37 +137,30 @@ function roundToNextQuarter(d = new Date()) {
   if (next === 60) t.setHours(t.getHours() + 1);
   return t;
 }
-
 function startOfDay(d: Date) {
   const t = new Date(d);
   t.setHours(0, 0, 0, 0);
   return t;
 }
 function sameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
-// Strict overlap helper: returns true if a and b overlap in time
 function overlaps(aStartISO: string, aEndISO: string, bStartISO: string, bEndISO: string) {
   const aStart = new Date(aStartISO).getTime();
   const aEnd = new Date(aEndISO).getTime();
   const bStart = new Date(bStartISO).getTime();
   const bEnd = new Date(bEndISO).getTime();
   if ([aStart, aEnd, bStart, bEnd].some(Number.isNaN)) return false;
-  return aStart < bEnd && bStart < aEnd; // strict overlap
+  return aStart < bEnd && bStart < aEnd;
 }
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function hasDate(arr: Date[], d: Date) {
   const key = ymd(d);
-  return arr.some(x => ymd(x) === key);
+  return arr.some((x) => ymd(x) === key);
 }
 function daysInMonth(year: number, monthIndex: number) {
-  // monthIndex: 0-11
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 function startOfMonth(d: Date) {
@@ -174,7 +174,6 @@ function addMonths(d: Date, n: number) {
 function formatMonthYear(d: Date) {
   return d.toLocaleString(undefined, { month: "long", year: "numeric" });
 }
-
 function loadUserFromToken(): { id?: string; email?: string } | null {
   try {
     if (typeof window === "undefined") return null;
@@ -190,7 +189,6 @@ function loadUserFromToken(): { id?: string; email?: string } | null {
     return null;
   }
 }
-
 function getDisplayName(u: User): string {
   const n = (u.name || "").trim();
   if (n) return n;
@@ -198,24 +196,15 @@ function getDisplayName(u: User): string {
   const pre = e.includes("@") ? e.split("@")[0] : e;
   return pre || "User";
 }
-
-// Narrow error helper while avoiding `any`
 const getErrMsg = (err: unknown): string => {
   if (!err) return "Unexpected error";
   if (typeof err === "string") return err;
   if (err instanceof Error) return err.message || "Unexpected error";
-
   if (typeof err === "object") {
-    const maybe = err as {
-      response?: { data?: { detail?: unknown } | string };
-      message?: string;
-    };
+    const maybe = err as { response?: { data?: { detail?: unknown } | string }; message?: string };
     const data = maybe.response?.data;
     if (typeof data === "string") return data;
-    const detail =
-      data && typeof data === "object" && "detail" in data
-        ? (data as { detail?: unknown }).detail
-        : undefined;
+    const detail = data && typeof data === "object" && "detail" in data ? (data as { detail?: unknown }).detail : undefined;
     if (typeof detail === "string") return detail;
     if (maybe.message) return maybe.message;
     if (data) {
@@ -226,16 +215,12 @@ const getErrMsg = (err: unknown): string => {
       }
     }
   }
-
   return "Unexpected error";
 };
-
 function getEmployeeId(u: User): string {
   return (u as { employee_id?: string })?.employee_id ?? "";
 }
-
 function getPrimaryCredential(u: User): string {
-  // 1) Direct credential-like fields (do not use role/roles)
   const direct = (
     (typeof u.credentials === "string" ? u.credentials : "") ||
     u.credential ||
@@ -244,23 +229,28 @@ function getPrimaryCredential(u: User): string {
     u.ems_level ||
     (Array.isArray(u.certifications) && u.certifications[0]) ||
     ""
-  )?.toString().trim();
+  )
+    ?.toString()
+    .trim();
 
-  // 2) If still nothing, try `credentials[]` with mixed shapes
   let fromArray = "";
   if (!direct && Array.isArray(u.credentials) && u.credentials.length) {
     for (const c of u.credentials) {
-      if (typeof c === "string" && c.trim()) { fromArray = c.trim(); break; }
+      if (typeof c === "string" && c.trim()) {
+        fromArray = c.trim();
+        break;
+      }
       if (typeof c === "object" && c) {
         const cand = (c.title || c.name || c.code || c.abbreviation || c.level || c.type || "").toString().trim();
-        if (cand) { fromArray = cand; break; }
+        if (cand) {
+          fromArray = cand;
+          break;
+        }
       }
     }
   }
 
   const raw = (direct || fromArray || "").toUpperCase();
-
-  // 3) Normalize common EMS levels
   const norm = raw
     .replace(/^EMT[-_ ]?B(ASIC)?$/, "EMT")
     .replace(/^EMT$/, "EMT")
@@ -269,13 +259,16 @@ function getPrimaryCredential(u: User): string {
     .replace(/^EMR$/, "EMR");
 
   switch (norm) {
-    case "PARAMEDIC": return "Paramedic";
-    case "EMT": return "EMT";
-    case "AEMT": return "AEMT";
-    case "EMR": return "EMR";
+    case "PARAMEDIC":
+      return "Paramedic";
+    case "EMT":
+      return "EMT";
+    case "AEMT":
+      return "AEMT";
+    case "EMR":
+      return "EMR";
     default:
-      // Title-case fallback
-      const base = (direct || fromArray || "");
+      const base = direct || fromArray || "";
       return base ? base.replace(/\b\w+/g, (w) => w[0]?.toUpperCase() + w.slice(1).toLowerCase()) : "";
   }
 }
@@ -290,7 +283,7 @@ export default function ShiftsPage() {
     if (t) setTenantId(t);
   }, []);
 
-  // Preload pickers (only when tenantId is set)
+  // Preload pickers
   const unitsQ = useQuery<Unit[]>({
     queryKey: ["units-picker", tenantId],
     queryFn: () => fetchUnits(tenantId),
@@ -319,17 +312,15 @@ export default function ShiftsPage() {
   }, [usersQ.data]);
 
   const handlePrint = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.print();
-    }
+    if (typeof window !== "undefined") window.print();
   }, []);
 
-const meQ = useQuery({
-  queryKey: ["me"],
-  queryFn: async () => loadSessionUser() ?? fetchMe(),
-  initialData: loadSessionUser() ?? undefined,
-  retry: false,
-});
+  const meQ = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => loadSessionUser() ?? fetchMe(),
+    initialData: loadSessionUser() ?? undefined,
+    retry: false,
+  });
 
   // List
   const shiftsQ = useQuery<Shift[]>({
@@ -339,19 +330,18 @@ const meQ = useQuery({
     retry: false,
   });
 
-  // Single-shift query (only runs when a shift is selected to view)
+  // Single-shift query (on view)
   const [viewId, setViewId] = useState<string>("");
 
   // Form state
   const [unitId, setUnitId] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
-  const [start, setStart] = useState<string>(""); // datetime-local
+  const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
-  // Enhancements: templates, duration, repeat, bulk
   const [template, setTemplate] = useState<string>("");
   const [durationHrs, setDurationHrs] = useState<number>(8);
-  const [repeatDays, setRepeatDays] = useState<number>(1); // 1 = single shift
+  const [repeatDays, setRepeatDays] = useState<number>(1);
   const [forAllUnits, setForAllUnits] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string>("");
 
@@ -366,7 +356,6 @@ const meQ = useQuery({
   // Calendar state
   const [calMonth, setCalMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => startOfDay(new Date()));
-  // Multi-day selection state (optional mode)
   const [multiDayMode, setMultiDayMode] = useState<boolean>(false);
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
 
@@ -378,10 +367,7 @@ const meQ = useQuery({
   });
 
   useEffect(() => {
-    // default unit selection
-    if (!unitId && unitsQ.data && unitsQ.data.length > 0) {
-      setUnitId(unitsQ.data[0].id);
-    }
+    if (!unitId && unitsQ.data && unitsQ.data.length > 0) setUnitId(unitsQ.data[0].id);
   }, [unitsQ.data, unitId]);
 
   useEffect(() => {
@@ -447,8 +433,6 @@ const meQ = useQuery({
         if (endTime.getTime() <= startTime.getTime()) {
           throw new Error("Shift end time must be after the start time.");
         }
-        // sequential to keep toasts/ordering predictable
-        // reuse existing API helper
         // eslint-disable-next-line no-await-in-loop
         await createShift(tid, p);
       }
@@ -464,206 +448,212 @@ const meQ = useQuery({
       toast({ title: "Error", description: msg });
     },
   });
-function applyTemplate(name: string, baseDate?: Date) {
-  const d = baseDate ? new Date(baseDate) : new Date();
-  d.setSeconds(0, 0);
 
-  // Generic "HH-HH" parser (e.g., "07-19", "19-07", "10-19", "19-06")
-  const m = /^(\d{2})-(\d{2})$/.exec(name);
-  if (m) {
-    const startH = parseInt(m[1], 10);
-    const endH = parseInt(m[2], 10);
-    const s = new Date(d);
-    s.setHours(startH, 0, 0, 0);
-    const e = new Date(d);
-    e.setHours(endH, 0, 0, 0);
-    // If end hour <= start hour, roll to next day (overnight)
-    if (endH <= startH) e.setDate(e.getDate() + 1);
-    return { start: toDatetimeLocalInput(s), end: toDatetimeLocalInput(e) };
+  function applyTemplate(name: string, baseDate?: Date) {
+    const d = baseDate ? new Date(baseDate) : new Date();
+    d.setSeconds(0, 0);
+
+    const m = /^(\d{2})-(\d{2})$/.exec(name);
+    if (m) {
+      const startH = parseInt(m[1], 10);
+      const endH = parseInt(m[2], 10);
+      const s = new Date(d);
+      s.setHours(startH, 0, 0, 0);
+      const e = new Date(d);
+      e.setHours(endH, 0, 0, 0);
+      if (endH <= startH) e.setDate(e.getDate() + 1);
+      return { start: toDatetimeLocalInput(s), end: toDatetimeLocalInput(e) };
+    }
+
+    if (name === "12h") {
+      const q = roundToNextQuarter(d);
+      const q2 = new Date(q);
+      q2.setHours(q2.getHours() + 12);
+      return { start: toDatetimeLocalInput(q), end: toDatetimeLocalInput(q2) };
+    }
+
+    if (name === "24h") {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      const y = new Date(x);
+      y.setDate(y.getDate() + 1);
+      return { start: toDatetimeLocalInput(x), end: toDatetimeLocalInput(y) };
+    }
+
+    return null;
   }
-
-  // Extra presets still supported
-  if (name === "12h") {
-    const q = roundToNextQuarter(d);
-    const q2 = new Date(q);
-    q2.setHours(q2.getHours() + 12);
-    return { start: toDatetimeLocalInput(q), end: toDatetimeLocalInput(q2) };
-  }
-
-  if (name === "24h") {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    const y = new Date(x);
-    y.setDate(y.getDate() + 1);
-    return { start: toDatetimeLocalInput(x), end: toDatetimeLocalInput(y) };
-  }
-
-  return null;
-}
 
   const delMut = useMutation<string, unknown, { id: string }>({
     mutationFn: async ({ id }) => {
       const tid = tenantId?.trim();
       if (!tid) throw new Error("No tenant selected");
-      // DELETE with tenant as query param to match list/fetch style
-      const { data } = await api.delete(`/shifts/${id}`, { params: { tenant_id: tid } });
-      return data;
+
+      // Step 1: probe
+      const probe = await canDeleteShift(tid, id);
+      if (!probe.can_delete) {
+        const b = probe.blockers;
+        throw new Error(
+          `Shift cannot be deleted. Blockers → Swap requests: ${b.shift_swap_requests}, Assignments: ${b.assignments}, Time entries: ${b.time_entries}`
+        );
+      }
+
+      // Step 2: confirm
+      if (!window.confirm("Delete this shift? This cannot be undone.")) {
+        throw new Error("User cancelled");
+      }
+
+      // Step 3: delete
+      await deleteShift(tid, id);
+      return id;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
+      toast({ title: "Shift deleted", description: `id=${vars.id}` });
+    },
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to delete shift";
+      toast({ title: "Error deleting shift", description: msg, variant: "destructive" });
+    },
+  });
+
+  // ✅ SAFE bulk delete (single declaration)
+  const bulkDelMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const tid = tenantId?.trim();
+      if (!tid) throw new Error("No tenant selected");
+
+      const blocked: Array<{ id: string; blockers: DeleteBlockers }> = [];
+      const deletable: string[] = [];
+
+      // Probe each id
+      for (const id of ids) {
+        // eslint-disable-next-line no-await-in-loop
+        const probe = await canDeleteShift(tid, id);
+        if (probe.can_delete) deletable.push(id);
+        else blocked.push({ id, blockers: probe.blockers });
+      }
+
+      if (deletable.length === 0) {
+        return { deleted: [] as string[], blocked };
+      }
+
+      if (!window.confirm(`Delete ${deletable.length} shift(s)? This cannot be undone.`)) {
+        throw new Error("User cancelled");
+      }
+
+      // Perform deletes
+      for (const id of deletable) {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteShift(tid, id);
+      }
+
+      return { deleted: deletable, blocked };
+    },
+    onSuccess: (res: { deleted: string[]; blocked: Array<{ id: string; blockers: DeleteBlockers }> }) => {
+      qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
+      clearSelection();
+
+      if (res.deleted.length && !res.blocked.length) {
+        toast({ title: `Deleted ${res.deleted.length} shift(s)` });
+        return;
+      }
+
+      const parts: string[] = [];
+      if (res.deleted.length) parts.push(`Deleted: ${res.deleted.length}`);
+      if (res.blocked.length) {
+        const bsum = res.blocked.reduce(
+          (acc, r) => {
+            acc.swap += r.blockers.shift_swap_requests;
+            acc.assign += r.blockers.assignments;
+            acc.time += r.blockers.time_entries;
+            return acc;
+          },
+          { swap: 0, assign: 0, time: 0 }
+        );
+        parts.push(
+          `Blocked: ${res.blocked.length} (Swap requests: ${bsum.swap}, Assignments: ${bsum.assign}, Time entries: ${bsum.time})`
+        );
+      }
+      toast({
+        title: "Bulk delete result",
+        description: parts.join(" • "),
+        variant: res.blocked.length ? "destructive" : undefined,
+      });
+    },
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to delete shifts";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    },
+  });
+
+  // Overlap helper
+  function hasMyOverlapFor(targetId: string): { conflict: boolean; conflictId?: string } {
+    const list = shiftsQ.data || [];
+    const target = list.find((s) => s.id === targetId);
+    if (!target || !currentUserId) return { conflict: false };
+    for (const s of list) {
+      if (s.id === target.id) continue;
+      if (s.user_id !== currentUserId) continue;
+      if (overlaps(target.start_time, target.end_time, s.start_time, s.end_time)) {
+        return { conflict: true, conflictId: s.id };
+      }
+    }
+    return { conflict: false };
+  }
+
+  const takeMut = useMutation({
+    mutationFn: async (id: string) => {
+      const pre = hasMyOverlapFor(id);
+      if (pre.conflict) {
+        throw new Error("You already have a shift that overlaps this time.");
+      }
+      const tid = tenantId?.trim();
+      if (!tid) throw new Error("Missing tenant");
+
+      const tokenUserLatest = loadUserFromToken();
+      const sessionSnapshotLatest = extractAuthSnapshot(sessionUser as SessionUser | null);
+      const tokenSnapshotLatest = extractAuthSnapshot(tokenUserLatest);
+      const meSnapshotLatest = extractAuthSnapshot(meQ.data);
+
+      let uid: string | undefined = sessionSnapshotLatest.id || tokenSnapshotLatest.id || meSnapshotLatest.id;
+      let email: string | undefined = sessionSnapshotLatest.email || tokenSnapshotLatest.email || meSnapshotLatest.email;
+
+      if (!uid) {
+        const me = await fetchMe().catch(() => null);
+        const fetchedSnapshot = extractAuthSnapshot(me);
+        uid = fetchedSnapshot.id ?? uid;
+        email = fetchedSnapshot.email ?? email;
+      }
+
+      if (!uid && Array.isArray(usersQ.data)) {
+        const cid = meSnapshotLatest.id;
+        if (cid && usersQ.data.some((u) => u.id === cid)) uid = cid;
+        if (!uid && email) {
+          const norm = (s: string) => s.trim().toLowerCase();
+          const e = norm(email);
+          const match = usersQ.data.find((u) => (u.email ? norm(u.email) : "") === e);
+          uid = match?.id;
+        }
+      }
+
+      if (!uid) throw new Error("Sign in required or user not in this tenant");
+      return updateShift(tid, id, { user_id: uid });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-      toast({ title: "Shift deleted" });
+      if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
+      toast({ title: "You signed up for this shift" });
     },
-    onError: (err: unknown, vars) => {
-      const msg = getErrMsg(err) ?? "Failed to delete shift";
-      toast({
-        title: "Error deleting shift",
-        description: `id=${vars?.id} • tenant=${tenantId || "(none)"} • ${msg}`,
-      });
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to take shift";
+      const norm = msg.toLowerCase();
+      const friendly =
+        norm.includes("overlap") || norm.includes("already") || norm.includes("409")
+          ? "You already have another assigned shift that overlaps this time."
+          : msg;
+      toast({ title: "Error", description: friendly });
     },
   });
-  const bulkDelMut = useMutation({
-  mutationFn: async (ids: string[]) => {
-    const tid = tenantId?.trim();
-    if (!tid) throw new Error("No tenant selected");
-    for (const id of ids) {
-      // eslint-disable-next-line no-await-in-loop
-      await api.delete(`/shifts/${id}`, { params: { tenant_id: tid } });
-    }
-    return true;
-  },
-  onSuccess: () => {
-    qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-    toast({ title: "Shifts deleted" });
-    clearSelection();
-  },
-  onError: (err: unknown) => {
-    const msg = getErrMsg(err) ?? "Failed to delete shifts";
-    toast({ title: "Error", description: msg });
-  },
-});
-
-  const updateMut = useMutation({
-  mutationFn: () => {
-    if (!tenantId || !editingId) throw new Error("No tenant or shift selected");
-    const payload: Parameters<typeof updateShift>[2] = {};
-    if (eUnitId) payload.unit_id = eUnitId;
-    if (eUserId === "__UNASSIGN__") payload.user_id = null;
-    else if (eUserId) payload.user_id = eUserId;
-    if (eStart) payload.start_time = new Date(eStart).toISOString();
-    if (eEnd) payload.end_time = new Date(eEnd).toISOString();
-    if (eStatus) payload.status = eStatus;
-
-    const nowMs = Date.now();
-    if (payload.start_time) {
-      const startMs = new Date(payload.start_time).getTime();
-      if (Number.isNaN(startMs)) throw new Error("Invalid start time");
-      if (startMs <= nowMs) throw new Error("Start must be in the future");
-    }
-    if (payload.end_time) {
-      const endMs = new Date(payload.end_time).getTime();
-      if (Number.isNaN(endMs)) throw new Error("Invalid end time");
-      if (endMs <= nowMs) throw new Error("End must be in the future");
-    }
-    if (payload.start_time && payload.end_time) {
-      if (new Date(payload.end_time).getTime() <= new Date(payload.start_time).getTime()) {
-        throw new Error("End must be after start");
-      }
-    }
-
-    return updateShift(tenantId, editingId, payload);
-  },
-  onSuccess: () => {
-    qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-    if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
-    toast({ title: "Shift updated" });
-    setEditingId("");
-    setEUnitId(""); setEUserId(""); setEStart(""); setEEnd(""); setEStatus("");
-  },
-  onError: (err: unknown) => {
-    const msg = getErrMsg(err) ?? "Failed to update shift";
-    toast({ title: "Error", description: msg });
-  },
-  });
-
-    // Helper to check for overlap with current user's shifts (client-side, using cache)
-    function hasMyOverlapFor(targetId: string): { conflict: boolean; conflictId?: string } {
-      const list = shiftsQ.data || [];
-      const target = list.find(s => s.id === targetId);
-      if (!target || !currentUserId) return { conflict: false };
-      for (const s of list) {
-        if (s.id === target.id) continue;
-        if (s.user_id !== currentUserId) continue;
-        if (overlaps(target.start_time, target.end_time, s.start_time, s.end_time)) {
-          return { conflict: true, conflictId: s.id };
-        }
-      }
-      return { conflict: false };
-    }
-
-    const takeMut = useMutation({
-      mutationFn: async (id: string) => {
-        // Client-side guard to avoid calling API when an overlap is obvious
-        const pre = hasMyOverlapFor(id);
-        if (pre.conflict) {
-          throw new Error("You already have a shift that overlaps this time.");
-        }
-        const tid = tenantId?.trim();
-        if (!tid) throw new Error("Missing tenant");
-
-        const tokenUserLatest = loadUserFromToken();
-        const sessionSnapshotLatest = extractAuthSnapshot(sessionUser as SessionUser | null);
-        const tokenSnapshotLatest = extractAuthSnapshot(tokenUserLatest);
-        const meSnapshotLatest = extractAuthSnapshot(meQ.data);
-
-        // 1) Try token/session/me for id/email
-        let uid: string | undefined =
-          sessionSnapshotLatest.id || tokenSnapshotLatest.id || meSnapshotLatest.id;
-        let email: string | undefined =
-          sessionSnapshotLatest.email || tokenSnapshotLatest.email || meSnapshotLatest.email;
-
-        // 2) If missing, fetch /auth/me once
-        if (!uid) {
-          const me = await fetchMe().catch(() => null);
-          const fetchedSnapshot = extractAuthSnapshot(me);
-          uid = fetchedSnapshot.id ?? uid;
-          email = fetchedSnapshot.email ?? email;
-        }
-
-        // 3) If still missing, try to resolve via users list (id or email)
-        if (!uid && Array.isArray(usersQ.data)) {
-          // Try by id first (if /auth/me returned an id/user_id but no email)
-          const cid = meSnapshotLatest.id;
-          if (cid && usersQ.data.some(u => u.id === cid)) {
-            uid = cid;
-          }
-          // Fallback: map by normalized email
-          if (!uid && email) {
-            const norm = (s: string) => s.trim().toLowerCase();
-            const e = norm(email);
-            const match = usersQ.data.find(u => (u.email ? norm(u.email) : "") === e);
-            uid = match?.id;
-          }
-        }
-
-        if (!uid) throw new Error("Sign in required or user not in this tenant");
-        return updateShift(tid, id, { user_id: uid });
-      },
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-        if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
-        toast({ title: "You signed up for this shift" });
-      },
-      onError: (err: unknown) => {
-        const msg = getErrMsg(err) ?? "Failed to take shift";
-        // Normalize common backend responses
-        const norm = msg.toLowerCase();
-        const friendly =
-          norm.includes("overlap") || norm.includes("already") || norm.includes("409")
-            ? "You already have another assigned shift that overlaps this time."
-            : msg;
-        toast({ title: "Error", description: friendly });
-      },
-    });
 
   const releaseMut = useMutation({
     mutationFn: async (id: string) => {
@@ -683,13 +673,13 @@ function applyTemplate(name: string, baseDate?: Date) {
 
   const unitMap = useMemo(() => {
     const m = new Map<string, string>();
-    (unitsQ.data || []).forEach(u => m.set(u.id, u.name));
+    (unitsQ.data || []).forEach((u) => m.set(u.id, u.name));
     return m;
   }, [unitsQ.data]);
 
   const userMap = useMemo(() => {
     const m = new Map<string, string>();
-    (usersQ.data || []).forEach(u => m.set(u.id, getDisplayName(u)));
+    (usersQ.data || []).forEach((u) => m.set(u.id, getDisplayName(u)));
     return m;
   }, [usersQ.data]);
 
@@ -700,68 +690,59 @@ function applyTemplate(name: string, baseDate?: Date) {
   const tokenSnapshot = extractAuthSnapshot(tokenUser);
   const meSnapshot = extractAuthSnapshot(meQ.data);
 
-  const currentUserId =
-    sessionSnapshot.id || tokenSnapshot.id || meSnapshot.id || "";
+  const currentUserId = sessionSnapshot.id || tokenSnapshot.id || meSnapshot.id || "";
 
   const currentEmail =
     sessionSnapshot.email ||
     tokenSnapshot.email ||
     meSnapshot.email ||
-    (Array.isArray(usersQ.data) && currentUserId
-      ? usersQ.data.find((u) => u.id === currentUserId)?.email || ""
-      : "");
+    (Array.isArray(usersQ.data) && currentUserId ? usersQ.data.find((u) => u.id === currentUserId)?.email || "" : "");
 
-  const currentRole =
-    (sessionSnapshot.role || meSnapshot.role || tokenSnapshot.role || "member").toLowerCase();
-  const isAdminOrSched =
-    currentRole === "admin" || currentRole === "scheduler" || currentRole === "sched";
-    const [viewFilter, setViewFilter] = useState<'all' | 'mine'>(() => (isAdminOrSched ? 'all' : 'mine'));
-    useEffect(() => { setViewFilter(isAdminOrSched ? 'all' : 'mine'); }, [isAdminOrSched]);
+  const currentRole = (sessionSnapshot.role || meSnapshot.role || tokenSnapshot.role || "member").toLowerCase();
+  const isAdminOrSched = currentRole === "admin" || currentRole === "scheduler" || currentRole === "sched";
 
-    // --- Multi-select for bulk actions (admin/scheduler) ---
-const [selectedShiftIds, setSelectedShiftIds] = useState<Set<string>>(new Set());
-const isSelected = (id: string) => selectedShiftIds.has(id);
-const toggleSelect = (id: string) => {
-  setSelectedShiftIds(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-};
+  const [viewFilter, setViewFilter] = useState<"all" | "mine">(() => (isAdminOrSched ? "all" : "mine"));
+  useEffect(() => {
+    setViewFilter(isAdminOrSched ? "all" : "mine");
+  }, [isAdminOrSched]);
+
+  // --- Multi-select for bulk actions ---
+  const [selectedShiftIds, setSelectedShiftIds] = useState<Set<string>>(new Set());
+  const isSelected = (id: string) => selectedShiftIds.has(id);
+  const toggleSelect = (id: string) => {
+    setSelectedShiftIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const clearSelection = () => setSelectedShiftIds(new Set());
   const selectAllFiltered = () => {
-  setSelectedShiftIds(new Set((filteredShifts || []).map(s => s.id)));
-};  
-    // Compose identity string for header: Name • ID: #### • Email
-const displayName = meSnapshot.name || sessionSnapshot.name || "";
-const employeeId = meSnapshot.employee_id || sessionSnapshot.employee_id || "";
-const identityParts: string[] = [];
-if (displayName) identityParts.push(displayName);
-if (employeeId) identityParts.push(`ID: ${employeeId}`);
-if (currentEmail) identityParts.push(currentEmail);
-const identity = identityParts.join(" • ");
+    setSelectedShiftIds(new Set((filteredShifts || []).map((s) => s.id)));
+  };
+
+  const displayName = meSnapshot.name || sessionSnapshot.name || "";
+  const employeeId = meSnapshot.employee_id || sessionSnapshot.employee_id || "";
+  const identityParts: string[] = [];
+  if (displayName) identityParts.push(displayName);
+  if (employeeId) identityParts.push(`ID: ${employeeId}`);
+  if (currentEmail) identityParts.push(currentEmail);
+  const identity = identityParts.join(" • ");
 
   const hasTenantMembership = useMemo(() => {
     if (!Array.isArray(usersQ.data)) return false;
-
-    // Match by id first
-    if (currentUserId && usersQ.data.some((u) => u.id === currentUserId)) {
-      return true;
-    }
-
-    // Fallback: match by normalized email
+    if (currentUserId && usersQ.data.some((u) => u.id === currentUserId)) return true;
     if (currentEmail) {
       const norm = (s: string) => s.trim().toLowerCase();
       const e = norm(currentEmail);
-      if (usersQ.data.some((u) => (u.email ? norm(u.email) : "") === e)) {
-        return true;
-      }
+      if (usersQ.data.some((u) => (u.email ? norm(u.email) : "") === e)) return true;
     }
     return false;
   }, [usersQ.data, currentUserId, currentEmail]);
 
   const shiftsByDay = useMemo(() => {
-    const map = new Map<string, number>(); // key = YYYY-MM-DD
+    const map = new Map<string, number>();
     const list = shiftsQ.data || [];
     if (!tenantId || list.length === 0) return map;
 
@@ -784,13 +765,12 @@ const identity = identityParts.join(" • ");
       const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`;
       const assigned = Boolean(s.user_id);
       const explicitColor = s.color ?? null;
-      // Use explicit color if provided; otherwise blue for assigned, orange for unassigned
       const color = explicitColor ?? (assigned ? "#2563eb" : "#f59e0b");
 
       const item: DayShift = {
         id: s.id,
-        unitName: s.unit_id ? (unitMap.get(s.unit_id) ?? null) : null,
-        userName: s.user_id ? (userMap.get(s.user_id) ?? null) : null,
+        unitName: s.unit_id ? unitMap.get(s.unit_id) ?? null : null,
+        userName: s.user_id ? userMap.get(s.user_id) ?? null : null,
         start: s.start_time,
         end: s.end_time,
         color,
@@ -803,7 +783,7 @@ const identity = identityParts.join(" • ");
   const filteredShifts = useMemo(() => {
     const list = shiftsQ.data || [];
     const byDate = selectedDate ? list.filter((s) => sameDay(new Date(s.start_time), selectedDate)) : list;
-    if (isAdminOrSched || viewFilter === 'all') return byDate;
+    if (isAdminOrSched || viewFilter === "all") return byDate;
     return byDate.filter((s) => s.user_id === currentUserId);
   }, [shiftsQ.data, selectedDate, isAdminOrSched, viewFilter, currentUserId]);
 
@@ -813,16 +793,11 @@ const identity = identityParts.join(" • ");
   const endOk = !!(endDateValue && !Number.isNaN(endDateValue.getTime()));
   const nowMs = Date.now();
   const startInFuture = startOk && startDateValue ? startDateValue.getTime() > nowMs : false;
-  const endAfterStart = startOk && endOk && startDateValue && endDateValue
-    ? endDateValue.getTime() > startDateValue.getTime()
-    : false;
+  const endAfterStart = startOk && endOk && startDateValue && endDateValue ? endDateValue.getTime() > startDateValue.getTime() : false;
   const canCreate = Boolean(tenantId && unitId && startOk && endOk && startInFuture && endAfterStart);
 
-  // Render body of the View Details panel without nested ternaries (fixes linter warning)
   function renderViewPanelBody() {
-    if (!tenantId) {
-      return <div className="text-sm text-muted-foreground">Set a Tenant ID above.</div>;
-    }
+    if (!tenantId) return <div className="text-sm text-muted-foreground">Set a Tenant ID above.</div>;
     if (viewQ.isLoading) {
       return (
         <div className="space-y-2">
@@ -840,9 +815,8 @@ const identity = identityParts.join(" • ");
       return (
         <div className="space-y-1 text-sm">
           <div className="font-medium">
-            {(viewQ.data.unit_id ? (unitMap.get(viewQ.data.unit_id) ?? "Unit") : "Unit")}
-            {" • "}
-            {(viewQ.data.user_id ? (userMap.get(viewQ.data.user_id) ?? "User") : "Unassigned")}
+            {viewQ.data.unit_id ? unitMap.get(viewQ.data.unit_id) ?? "Unit" : "Unit"}{" • "}
+            {viewQ.data.user_id ? userMap.get(viewQ.data.user_id) ?? "User" : "Unassigned"}
           </div>
           <div className="opacity-80">
             {new Date(viewQ.data.start_time).toLocaleString()} → {new Date(viewQ.data.end_time).toLocaleString()}
@@ -865,16 +839,16 @@ const identity = identityParts.join(" • ");
     return null;
   }
 
-  // Render body of the List card without nested ternaries
   function renderListBody() {
-    if (!tenantId) {
-      return <div className="text-sm text-muted-foreground">Set a Tenant ID above to load shifts.</div>;
-    }
+    if (!tenantId) return <div className="text-sm text-muted-foreground">Set a Tenant ID above to load shifts.</div>;
     if (shiftsQ.isLoading) {
       return (
         <ul className="space-y-2">
           {[0, 1, 2].map((i) => (
-            <li key={i} className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition">
+            <li
+              key={i}
+              className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition"
+            >
               <div className="space-y-2 w-full">
                 <div className="animate-pulse h-3 w-40 bg-muted rounded" />
                 <div className="animate-pulse h-3 w-64 bg-muted rounded" />
@@ -903,9 +877,7 @@ const identity = identityParts.join(" • ");
       <>
         {selectedDate && (
           <div className="mb-2 flex items-center justify-between text-sm">
-            <div className="text-muted-foreground">
-              Filtered by date: {selectedDate.toLocaleDateString()}
-            </div>
+            <div className="text-muted-foreground">Filtered by date: {selectedDate.toLocaleDateString()}</div>
             <Button variant="outline" size="sm" onClick={() => setSelectedDate(null)} className="print:hidden">
               Clear filter
             </Button>
@@ -913,7 +885,10 @@ const identity = identityParts.join(" • ");
         )}
         <ul className="space-y-2">
           {filteredShifts.map((s) => (
-            <li key={s.id} className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition">
+            <li
+              key={s.id}
+              className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition"
+            >
               <div className="flex items-start gap-3 w-full">
                 {isAdminOrSched && (
                   <input
@@ -927,11 +902,11 @@ const identity = identityParts.join(" • ");
                 <div className="space-y-0.5 flex-1">
                   <div className="font-medium flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border" title="Unit">
-                      {s.unit_id ? (unitMap.get(s.unit_id) ?? "Unit") : "Unit"}
+                      {s.unit_id ? unitMap.get(s.unit_id) ?? "Unit" : "Unit"}
                     </span>
                     {s.user_id ? (
                       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-emerald-50">
-                        {(userMap.get(s.user_id) ?? "Assigned")}
+                        {userMap.get(s.user_id) ?? "Assigned"}
                       </span>
                     ) : (
                       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-amber-50">
@@ -951,7 +926,6 @@ const identity = identityParts.join(" • ");
                 <div className="flex items-center gap-2 print:hidden">
                   {isAdminOrSched ? (
                     <>
-                      {/* Admin/Scheduler: full controls */}
                       <Button
                         variant="outline"
                         size="sm"
@@ -970,21 +944,24 @@ const identity = identityParts.join(" • ");
                       <Button variant="outline" size="sm" onClick={() => setViewId(s.id)}>
                         View
                       </Button>
+                      {/* Row delete — confirm happens inside mutation */}
                       <Button
                         variant="destructive"
                         size="sm"
                         disabled={delMut.isPending && deletingId === s.id}
                         onClick={() => {
-                          if (!confirm("Delete this shift?")) return;
                           setDeletingId(s.id);
                           delMut.mutate({ id: s.id }, { onSettled: () => setDeletingId("") });
-                          setSelectedShiftIds(prev => { const n = new Set(prev); n.delete(s.id); return n; });
+                          setSelectedShiftIds((prev) => {
+                            const n = new Set(prev);
+                            n.delete(s.id);
+                            return n;
+                          });
                         }}
                       >
                         {delMut.isPending && deletingId === s.id ? "Deleting…" : "Delete"}
                       </Button>
 
-                      {/* Quick self-assign/release for admins too */}
                       {!s.user_id && (
                         <Button
                           variant="default"
@@ -1003,19 +980,13 @@ const identity = identityParts.join(" • ");
                         </Button>
                       )}
                       {s.user_id === currentUserId && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={releaseMut.isPending}
-                          onClick={() => releaseMut.mutate(s.id)}
-                        >
+                        <Button variant="outline" size="sm" disabled={releaseMut.isPending} onClick={() => releaseMut.mutate(s.id)}>
                           {releaseMut.isPending ? "Releasing…" : "Release"}
                         </Button>
                       )}
                     </>
                   ) : (
                     <>
-                      {/* Member: can only sign up for unassigned shifts */}
                       {!s.user_id && (
                         <Button
                           variant="default"
@@ -1042,20 +1013,14 @@ const identity = identityParts.join(" • ");
         </ul>
       </>
     );
-            }
+  }
 
   return (
     <RequireAuth>
       <div className="mx-auto max-w-6xl px-4 space-y-6 print:space-y-4 print:bg-white print:text-black">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold print:text-black">Shifts</h1>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handlePrint}
-            className="print:hidden"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={handlePrint} className="print:hidden">
             Print shifts
           </Button>
         </div>
@@ -1076,150 +1041,135 @@ const identity = identityParts.join(" • ");
             }}
             className="flex gap-2"
           >
-            <Input
-              placeholder="Tenant ID (UUID)"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-            />
-            <Button type="submit" variant="outline" className="h-9">Save</Button>
+            <Input placeholder="Tenant ID (UUID)" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
+            <Button type="submit" variant="outline" className="h-9">
+              Save
+            </Button>
           </form>
-          {!tenantId && (
-            <p className="text-sm text-muted-foreground">Paste your tenant UUID and click Save to load shifts.</p>
-          )}
-
-            
+          {!tenantId && <p className="text-sm text-muted-foreground">Paste your tenant UUID and click Save to load shifts.</p>}
         </Card>
 
         {/* Calendar */}
         <Card className="p-4 space-y-3 bg-muted/30 print:hidden">
-  {/* Legend */}
-  <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground print:text-black">
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#2563eb" }} />
-      Shift
-    </span>
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} />
-      Unassigned
-    </span>
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-block w-3 h-3 rounded border-2" style={{ borderColor: "hsl(var(--primary))" }} />
-      Today
-    </span>
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-block w-3 h-3 rounded border-2" style={{ borderColor: "hsl(var(--ring))", background: "hsl(var(--accent))" }} />
-      Selected
-    </span>
-  </div>
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground print:text-black">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#2563eb" }} />
+              Shift
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} />
+              Unassigned
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded border-2" style={{ borderColor: "hsl(var(--primary))" }} />
+              Today
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block w-3 h-3 rounded border-2"
+                style={{ borderColor: "hsl(var(--ring))", background: "hsl(var(--accent))" }}
+              />
+              Selected
+            </span>
+          </div>
 
-  <Calendar
-    month={calMonth}
-    onMonthChange={setCalMonth}
-    selectedDate={selectedDate}
-    selectedDates={selectedDates}
-    onSelect={(day) => {
-      setSelectedDate(day);
+          <Calendar
+            month={calMonth}
+            onMonthChange={setCalMonth}
+            selectedDate={selectedDate}
+            selectedDates={selectedDates}
+            onSelect={(day) => {
+              setSelectedDate(day);
 
-      if (multiDayMode && day) {
-        setSelectedDates(prev => {
-          const exists = hasDate(prev, day);
-          if (exists) return prev.filter(d => ymd(d) !== ymd(day));
-          return [...prev, startOfDay(day)];
-        });
-      } else {
-        // leaving multi-day mode: keep a single-day convenience selection
-        setSelectedDates([startOfDay(day)]);
-      }
+              if (multiDayMode && day) {
+                setSelectedDates((prev) => {
+                  const exists = hasDate(prev, day);
+                  if (exists) return prev.filter((d) => ymd(d) !== ymd(day));
+                  return [...prev, startOfDay(day)];
+                });
+              } else {
+                setSelectedDates([startOfDay(day)]);
+              }
 
-      // If a template is selected, apply it relative to the selected day
-      if (template) {
-        const applied = applyTemplate(template, day);
-        if (applied) {
-          setStart(applied.start);
-          setEnd(applied.end);
-          const ms = new Date(applied.end).getTime() - new Date(applied.start).getTime();
-          const hrs = Math.max(1, Math.round(ms / 36e5));
-          setDurationHrs(hrs);
-          return;
-        }
-      }
-      // Fallback: default 09:00 -> +duration (or 8h)
-      const s = new Date(day);
-      s.setHours(9, 0, 0, 0);
-      const e = new Date(s);
-      const len = Number.isFinite(durationHrs) ? Number(durationHrs) : 8;
-      e.setHours(e.getHours() + len);
-      setStart(toDatetimeLocalInput(s));
-      setEnd(toDatetimeLocalInput(e));
-    }}
-    shiftsByDate={shiftsByDate}
-    loading={shiftsQ.isLoading}
-    printable
-  />
+              if (template) {
+                const applied = applyTemplate(template, day);
+                if (applied) {
+                  setStart(applied.start);
+                  setEnd(applied.end);
+                  const ms = new Date(applied.end).getTime() - new Date(applied.start).getTime();
+                  const hrs = Math.max(1, Math.round(ms / 36e5));
+                  setDurationHrs(hrs);
+                  return;
+                }
+              }
+              const s = new Date(day);
+              s.setHours(9, 0, 0, 0);
+              const e = new Date(s);
+              const len = Number.isFinite(durationHrs) ? Number(durationHrs) : 8;
+              e.setHours(e.getHours() + len);
+              setStart(toDatetimeLocalInput(s));
+              setEnd(toDatetimeLocalInput(e));
+            }}
+            shiftsByDate={shiftsByDate}
+            loading={shiftsQ.isLoading}
+            printable
+          />
 
-  {/* Selected date quick actions */}
-  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-    <div className="flex items-center gap-3 text-sm">
-      <div>
-        {selectedDate
-          ? `Selected: ${selectedDate.toLocaleDateString()}`
-          : "Select a day to filter or prefill the form."}
-      </div>
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={multiDayMode}
-          onChange={(e) => {
-            const on = e.target.checked;
-            setMultiDayMode(on);
-            if (!on && selectedDates.length > 0) {
-              // collapse to the most recent date for single-day mode
-              setSelectedDates([selectedDates[selectedDates.length - 1]]);
-            }
-          }}
-        />
-        Multi-day select
-      </label>
-      {multiDayMode && (
-        <span className="inline-flex items-center gap-1 rounded border px-2 py-0.5 bg-muted text-xs">
-          {selectedDates.length} day(s)
-          <button
-            type="button"
-            className="underline"
-            onClick={() => setSelectedDates([])}
-            title="Clear selected days"
-          >
-            Clear
-          </button>
-        </span>
-      )}
-    </div>
-    <div className="flex gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          if (!selectedDate) return;
-          const s = new Date(selectedDate);
-          s.setHours(9, 0, 0, 0);
-          const e = new Date(s);
-          e.setHours(e.getHours() + 8);
-          setStart(toDatetimeLocalInput(s));
-          setEnd(toDatetimeLocalInput(e));
-        }}
-      >
-        Prefill day (9–17)
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => { setSelectedDate(null); setSelectedDates([]); }}
-      >
-        Clear
-      </Button>
-    </div>
-  </div>
-</Card>
+          {/* Selected date quick actions */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 text-sm">
+              <div>
+                {selectedDate
+                  ? `Selected: ${selectedDate.toLocaleDateString()}`
+                  : "Select a day to filter or prefill the form."}
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={multiDayMode}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setMultiDayMode(on);
+                    if (!on && selectedDates.length > 0) {
+                      setSelectedDates([selectedDates[selectedDates.length - 1]]);
+                    }
+                  }}
+                />
+                Multi-day select
+              </label>
+              {multiDayMode && (
+                <span className="inline-flex items-center gap-1 rounded border px-2 py-0.5 bg-muted text-xs">
+                  {selectedDates.length} day(s)
+                  <button type="button" className="underline" onClick={() => setSelectedDates([])} title="Clear selected days">
+                    Clear
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!selectedDate) return;
+                  const s = new Date(selectedDate);
+                  s.setHours(9, 0, 0, 0);
+                  const e = new Date(s);
+                  e.setHours(e.getHours() + 8);
+                  setStart(toDatetimeLocalInput(s));
+                  setEnd(toDatetimeLocalInput(e));
+                }}
+              >
+                Prefill day (9–17)
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setSelectedDate(null); setSelectedDates([]); }}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        </Card>
+
         {/* Create */}
         <Card className="p-4 space-y-3 bg-muted/50 print:hidden">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -1232,9 +1182,13 @@ const identity = identityParts.join(" • ");
                 disabled={unitsQ.isLoading || !tenantId}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50"
               >
-                <option value="" disabled>Select unit</option>
+                <option value="" disabled>
+                  Select unit
+                </option>
                 {(unitsQ.data || []).map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1255,7 +1209,9 @@ const identity = identityParts.join(" • ");
                   const cred = getPrimaryCredential(u);
                   const label = [name, emp, cred].filter(Boolean).join(" · ");
                   return (
-                    <option key={u.id} value={u.id}>{label}</option>
+                    <option key={u.id} value={u.id}>
+                      {label}
+                    </option>
                   );
                 })}
               </select>
@@ -1266,7 +1222,7 @@ const identity = identityParts.join(" • ");
               <Input
                 type="datetime-local"
                 value={start}
-                onChange={e => {
+                onChange={(e) => {
                   const v = e.target.value;
                   setStart(v);
                   if (end && new Date(end) <= new Date(v)) {
@@ -1280,15 +1236,10 @@ const identity = identityParts.join(" • ");
 
             <div className="md:col-span-3">
               <Label>End</Label>
-              <Input
-                type="datetime-local"
-                value={end}
-                min={start || undefined}
-                onChange={e => setEnd(e.target.value)}
-              />
+              <Input type="datetime-local" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} />
             </div>
 
-            {/* New controls: Template, Duration */}
+            {/* Template & Duration */}
             <div className="md:col-span-3">
               <Label>Template</Label>
               <select
@@ -1299,12 +1250,13 @@ const identity = identityParts.join(" • ");
                   setTemplate(val);
                   const base = selectedDate ? new Date(selectedDate) : new Date();
                   const applied = applyTemplate(val, base);
-                  if (applied)
-                     { setStart(applied.start);
+                  if (applied) {
+                    setStart(applied.start);
                     setEnd(applied.end);
                     const ms = new Date(applied.end).getTime() - new Date(applied.start).getTime();
                     const hrs = Math.max(1, Math.round(ms / 36e5));
-                    setDurationHrs(hrs); }
+                    setDurationHrs(hrs);
+                  }
                 }}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               >
@@ -1340,10 +1292,10 @@ const identity = identityParts.join(" • ");
 
             <div className="md:col-span-3">
               <Label>Notes</Label>
-              <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" />
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
             </div>
 
-            {/* Repeat & All Units controls */}
+            {/* Repeat & All Units */}
             <div className="md:col-span-2">
               <Label>Repeat (days)</Label>
               <Input
@@ -1353,19 +1305,22 @@ const identity = identityParts.join(" • ");
                 value={repeatDays}
                 onChange={(e) => setRepeatDays(Math.max(1, Math.min(31, Number(e.target.value || 1))))}
               />
-             </div>
+            </div>
             <div className="flex items-center gap-2 md:col-span-2 pt-6">
               <input id="forAllUnits" type="checkbox" checked={forAllUnits} onChange={(e) => setForAllUnits(e.target.checked)} />
-              <label htmlFor="forAllUnits" className="text-sm">Create for all units</label>
+              <label htmlFor="forAllUnits" className="text-sm">
+                Create for all units
+              </label>
             </div>
           </div>
+
           <div>
             <Button
               onClick={() => {
                 const tid = tenantId?.trim();
                 if (!tid) return;
-                // If bulk (repeatDays > 1 or forAllUnits), build an array and use bulkCreateMut
-                const units = forAllUnits ? (unitsQ.data || []).map(u => u.id) : [unitId];
+
+                const units = forAllUnits ? (unitsQ.data || []).map((u) => u.id) : [unitId];
                 const startDate = new Date(start);
                 const endDate = new Date(end);
                 const nowMs = Date.now();
@@ -1382,22 +1337,25 @@ const identity = identityParts.join(" • ");
                   toast({ title: "End time before start", description: "End time must be after the start time." });
                   return;
                 }
-                const items: Array<{ unit_id: string; user_id: string | null; start_time: string; end_time: string; notes?: string }> = [];
+
+                const items: Array<{
+                  unit_id: string;
+                  user_id: string | null;
+                  start_time: string;
+                  end_time: string;
+                  notes?: string;
+                }> = [];
+
                 if (multiDayMode && selectedDates.length > 0) {
-                  // Multi-day mode: ignore repeatDays; create for each selected day (and each unit if forAllUnits)
                   for (const uid of units) {
                     for (const d of selectedDates) {
                       const s = new Date(d);
                       const e2 = new Date(d);
-                      // Use the current Start/End times' hours/minutes relative to the selected date
                       const sSrc = new Date(startDate);
                       const eSrc = new Date(endDate);
                       s.setHours(sSrc.getHours(), sSrc.getMinutes(), 0, 0);
                       e2.setHours(eSrc.getHours(), eSrc.getMinutes(), 0, 0);
-                      // If end <= start, roll to next day (overnight)
-                      if (e2.getTime() <= s.getTime()) {
-                        e2.setDate(e2.getDate() + 1);
-                      }
+                      if (e2.getTime() <= s.getTime()) e2.setDate(e2.getDate() + 1);
                       items.push({
                         unit_id: uid,
                         user_id: userId || null,
@@ -1408,11 +1366,12 @@ const identity = identityParts.join(" • ");
                     }
                   }
                 } else if (repeatDays > 1 || forAllUnits) {
-                  // Original bulk behavior: repeat forward N days and/or all units
                   for (const uid of units) {
                     for (let i = 0; i < repeatDays; i++) {
-                      const s = new Date(startDate); s.setDate(s.getDate() + i);
-                      const e2 = new Date(endDate); e2.setDate(e2.getDate() + i);
+                      const s = new Date(startDate);
+                      s.setDate(s.getDate() + i);
+                      const e2 = new Date(endDate);
+                      e2.setDate(e2.getDate() + i);
                       items.push({
                         unit_id: uid,
                         user_id: userId || null,
@@ -1430,7 +1389,10 @@ const identity = identityParts.join(" • ");
                     return Number.isNaN(ts) || ts <= nowMs;
                   });
                   if (hasPast) {
-                    toast({ title: "Shift time is in the past", description: "Please adjust your selection so all shifts start in the future." });
+                    toast({
+                      title: "Shift time is in the past",
+                      description: "Please adjust your selection so all shifts start in the future.",
+                    });
                     return;
                   }
                   bulkCreateMut.mutate(items);
@@ -1440,15 +1402,23 @@ const identity = identityParts.join(" • ");
               }}
               disabled={!canCreate || createMut.isPending || bulkCreateMut.isPending}
             >
-              {createMut.isPending || bulkCreateMut.isPending ? "Creating..." : (repeatDays > 1 || forAllUnits) ? `Create ${forAllUnits ? (unitsQ.data || []).length : 1} × ${repeatDays}` : "Create Shift"}
+              {createMut.isPending || bulkCreateMut.isPending
+                ? "Creating..."
+                : repeatDays > 1 || forAllUnits
+                ? `Create ${forAllUnits ? (unitsQ.data || []).length : 1} × ${repeatDays}`
+                : "Create Shift"}
             </Button>
             {(!tenantId || !unitId || !start || !end) && (
               <div className="text-xs text-muted-foreground mt-2">
-                {!tenantId ? "Set a Tenant ID above to enable creation." :
-                 !unitId ? "Create a Unit first or select an existing one." :
-                 !start || !end ? "Pick start and end times." : null}
+                {!tenantId
+                  ? "Set a Tenant ID above to enable creation."
+                  : !unitId
+                  ? "Create a Unit first or select an existing one."
+                  : !start || !end
+                  ? "Pick start and end times."
+                  : null}
               </div>
-              )}
+            )}
             {multiDayMode && (
               <div className="text-xs text-muted-foreground mt-2">
                 Multi-day mode: the <em>Repeat (days)</em> setting is ignored; we will create one shift per selected day.
@@ -1466,7 +1436,9 @@ const identity = identityParts.join(" • ");
               </>
             )}
             {(repeatDays > 1 || forAllUnits) && (
-              <div className="text-xs text-muted-foreground mt-2">Bulk mode: {forAllUnits ? "all units" : "one unit"} × {repeatDays} day(s).</div>
+              <div className="text-xs text-muted-foreground mt-2">
+                Bulk mode: {forAllUnits ? "all units" : "one unit"} × {repeatDays} day(s).
+              </div>
             )}
           </div>
         </Card>
@@ -1482,7 +1454,11 @@ const identity = identityParts.join(" • ");
                 size="sm"
                 onClick={() => {
                   setEditingId("");
-                  setEUnitId(""); setEUserId(""); setEStart(""); setEEnd(""); setEStatus("");
+                  setEUnitId("");
+                  setEUserId("");
+                  setEStart("");
+                  setEEnd("");
+                  setEStatus("");
                 }}
               >
                 Cancel
@@ -1498,7 +1474,9 @@ const identity = identityParts.join(" • ");
                 >
                   <option value="">(leave unchanged)</option>
                   {(unitsQ.data || []).map((u) => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1518,7 +1496,9 @@ const identity = identityParts.join(" • ");
                     const cred = getPrimaryCredential(u);
                     const label = [name, emp, cred].filter(Boolean).join(" · ");
                     return (
-                      <option key={u.id} value={u.id}>{label}</option>
+                      <option key={u.id} value={u.id}>
+                        {label}
+                      </option>
                     );
                   })}
                 </select>
@@ -1526,37 +1506,21 @@ const identity = identityParts.join(" • ");
 
               <div>
                 <Label>Start</Label>
-                <Input
-                  type="datetime-local"
-                  value={eStart}
-                  onChange={(e) => setEStart(e.target.value)}
-                  placeholder="(leave blank to keep current)"
-                />
+                <Input type="datetime-local" value={eStart} onChange={(e) => setEStart(e.target.value)} placeholder="(leave blank to keep current)" />
               </div>
 
               <div>
                 <Label>End</Label>
-                <Input
-                  type="datetime-local"
-                  value={eEnd}
-                  onChange={(e) => setEEnd(e.target.value)}
-                />
+                <Input type="datetime-local" value={eEnd} onChange={(e) => setEEnd(e.target.value)} />
               </div>
 
               <div>
                 <Label>Status</Label>
-                <Input
-                  value={eStatus}
-                  onChange={(e) => setEStatus(e.target.value)}
-                  placeholder="e.g. draft/published (leave blank to keep current)"
-                />
+                <Input value={eStatus} onChange={(e) => setEStatus(e.target.value)} placeholder="e.g. draft/published (leave blank to keep current)" />
               </div>
 
               <div className="flex items-end">
-                <Button
-                  onClick={() => updateMut.mutate()}
-                  disabled={!tenantId || !editingId || updateMut.isPending}
-                >
+                <Button onClick={() => updateMut.mutate()} disabled={!tenantId || !editingId || updateMut.isPending}>
                   {updateMut.isPending ? "Saving…" : "Save Changes"}
                 </Button>
               </div>
@@ -1564,17 +1528,12 @@ const identity = identityParts.join(" • ");
           </Card>
         )}
 
-        {/* View details (tiny helper panel) */}
+        {/* View details */}
         {viewId && (
           <Card className="p-4 space-y-2 bg-muted/30 print:hidden">
             <div className="flex items-center justify-between">
               <div className="font-medium">Shift Details</div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setViewId("")}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => setViewId("")}>
                 Close
               </Button>
             </div>
@@ -1594,7 +1553,8 @@ const identity = identityParts.join(" • ");
                     type="checkbox"
                     checked={filteredShifts.length > 0 && selectedShiftIds.size === filteredShifts.length}
                     onChange={(e) => {
-                      if (e.target.checked) selectAllFiltered(); else clearSelection();
+                      if (e.target.checked) selectAllFiltered();
+                      else clearSelection();
                     }}
                   />
                   Select all on page
@@ -1611,16 +1571,16 @@ const identity = identityParts.join(" • ");
                 <div className="inline-flex rounded-md border overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => setViewFilter('mine')}
-                    className={`px-3 py-1 text-sm ${viewFilter === 'mine' ? 'bg-background' : 'bg-muted'}`}
+                    onClick={() => setViewFilter("mine")}
+                    className={`px-3 py-1 text-sm ${viewFilter === "mine" ? "bg-background" : "bg-muted"}`}
                     title="Only shifts you are assigned to"
                   >
                     My shifts
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewFilter('all')}
-                    className={`px-3 py-1 text-sm ${viewFilter === 'all' ? 'bg-background' : 'bg-muted'}`}
+                    onClick={() => setViewFilter("all")}
+                    className={`px-3 py-1 text-sm ${viewFilter === "all" ? "bg-background" : "bg-muted"}`}
                     title="All shifts in this tenant"
                   >
                     All shifts
@@ -1634,11 +1594,11 @@ const identity = identityParts.join(" • ");
                       size="sm"
                       disabled={bulkDelMut.isPending}
                       onClick={() => {
-                        if (!confirm(`Delete ${selectedShiftIds.size} selected shift(s)?`)) return;
-                        bulkDelMut.mutate(Array.from(selectedShiftIds));
+                        const ids = Array.from(selectedShiftIds);
+                        bulkDelMut.mutate(ids);
                       }}
                     >
-                      {bulkDelMut.isPending ? "Deleting…" : "Delete selected"}
+                      {bulkDelMut.isPending ? "Deleting…" : `Delete ${selectedShiftIds.size} selected`}
                     </Button>
                   )}
                 </>
@@ -1652,7 +1612,7 @@ const identity = identityParts.join(" • ");
   );
 }
 
-// Inline Label component to replace the missing module
+// Inline Label component
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-sm font-medium">{children}</label>;
 }
