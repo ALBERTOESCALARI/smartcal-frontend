@@ -127,7 +127,7 @@ function normalizeSwap(raw: RawSwapRequest): SwapRequest {
 
 export async function fetchSwapRequests(tenantId: string): Promise<SwapRequest[]> {
   if (!tenantId) return [];
-  const { data } = await api.get<RawSwapRequest[]>("/api/swaps", {
+  const { data } = await api.get<RawSwapRequest[]>("/swaps", {
     params: { tenant_id: tenantId },
   });
   if (!Array.isArray(data)) return [];
@@ -149,7 +149,7 @@ export async function createSwapRequest(
     target_user_id: payload.targetUserId,
     notes: payload.notes,
   };
-  const { data } = await api.post<RawSwapRequest>("/api/swaps", body, {
+  const { data } = await api.post<RawSwapRequest>("/swaps", body, {
     params: { tenant_id: tenantId },
   });
   return normalizeSwap(data ?? {});
@@ -166,14 +166,14 @@ export async function updateSwapStatus(
     target_user_id: options?.targetUserId,
     notes: options?.notes,
   };
-  const { data } = await api.patch<RawSwapRequest>(`/api/swaps/${id}`, body, {
+  const { data } = await api.patch<RawSwapRequest>(`/swaps/${id}`, body, {
     params: { tenant_id: tenantId },
   });
   return normalizeSwap(data ?? {});
 }
 
 export async function deleteSwapRequest(tenantId: string, id: string): Promise<string> {
-  await api.delete(`/api/swaps/${id}`, { params: { tenant_id: tenantId } });
+  await api.delete(`/swaps/${id}`, { params: { tenant_id: tenantId } });
   return id;
 }
 
