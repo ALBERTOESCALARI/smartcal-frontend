@@ -374,39 +374,65 @@ export default function ClockPage() {
                           {clockOutDate ? timeFormatter.format(clockOutDate) : "—"}
                         </td>
 
-                        {/* Clock-In Map (coordinates link only) */}
-                        <td className="py-3 pr-4 text-center align-middle">
-                          {inCoords ? (
-                            <a
-                              href={buildMapsHref(inCoords[0], inCoords[1])}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-                              title="Open clock-in location on map"
-                            >
-                              {`${inCoords[0].toFixed(6)},${inCoords[1].toFixed(6)}`}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
+                        {/* Clock-In Map (coordinates link + copy button) */}
+<td className="py-3 pr-4 text-center align-middle">
+  {inCoords ? (
+    <div className="flex items-center justify-center space-x-1">
+      <a
+        href={buildMapsHref(inCoords[0], inCoords[1])}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center text-xs font-medium text-blue-600 underline hover:opacity-80"
+        title="Open clock-in location on map"
+      >
+        {`${inCoords[0].toFixed(6)},${inCoords[1].toFixed(6)}`}
+      </a>
+      <button
+        onClick={() =>
+          navigator.clipboard.writeText(
+            `${inCoords[0].toFixed(6)},${inCoords[1].toFixed(6)}`
+          )
+        }
+        className="ml-1 rounded px-1 text-[10px] text-slate-500 hover:text-slate-700"
+        title="Copy coordinates"
+      >
+        ⧉
+      </button>
+    </div>
+  ) : (
+    <span className="text-xs text-slate-400">—</span>
+  )}
+</td>
 
-                        {/* Clock-Out Map (coordinates link only) */}
-                        <td className="py-3 text-center align-middle">
-                          {outCoords ? (
-                            <a
-                              href={buildMapsHref(outCoords[0], outCoords[1])}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center px-1 text-xs font-medium text-blue-600 underline hover:opacity-80"
-                              title="Open clock-out location on map"
-                            >
-                              {`${outCoords[0].toFixed(6)},${outCoords[1].toFixed(6)}`}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
+{/* Clock-Out Map (coordinates link + copy button) */}
+<td className="py-3 text-center align-middle">
+  {outCoords ? (
+    <div className="flex items-center justify-center space-x-1">
+      <a
+        href={buildMapsHref(outCoords[0], outCoords[1])}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center text-xs font-medium text-blue-600 underline hover:opacity-80"
+        title="Open clock-out location on map"
+      >
+        {`${outCoords[0].toFixed(6)},${outCoords[1].toFixed(6)}`}
+      </a>
+      <button
+        onClick={() =>
+          navigator.clipboard.writeText(
+            `${outCoords[0].toFixed(6)},${outCoords[1].toFixed(6)}`
+          )
+        }
+        className="ml-1 rounded px-1 text-[10px] text-slate-500 hover:text-slate-700"
+        title="Copy coordinates"
+      >
+        ⧉
+      </button>
+    </div>
+  ) : (
+    <span className="text-xs text-slate-400">—</span>
+  )}
+</td>
                       </tr>
                     );
                   })}
