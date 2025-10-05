@@ -2,16 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { setActiveTenantId } from "@/lib/api"; // <-- ADD THIS
+import { setActiveTenantId } from "@/lib/api";
 import { login } from "@/lib/auth";
 
 interface LoginFormProps {
   reason?: string;
-  initialTenantId?: string; // 👈 new, optional from URL
+  initialTenantId?: string;
 }
 
 export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
@@ -20,21 +20,34 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tenantId, setTenantId] = useState(initialTenantId ?? "");
+  const [rememberTenant, setRememberTenant] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 🔹 On mount, load remembered tenant ID if available
+  useEffect(() => {
+    const savedTenant = localStorage.getItem("remembered_tenant_id");
+    if (savedTenant && !tenantId) {
+      setTenantId(savedTenant);
+      setRememberTenant(true);
+    }
+  }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      // login expects (email, password)
       await login(email, password);
-
-      // store tenant for the API layer / app shell
       setActiveTenantId(tenantId.trim());
 
-      // redirect flow unchanged
+      // 🔹 Save or clear remembered tenant based on toggle
+      if (rememberTenant) {
+        localStorage.setItem("remembered_tenant_id", tenantId.trim());
+      } else {
+        localStorage.removeItem("remembered_tenant_id");
+      }
+
       if (password.startsWith("TMP-")) {
         router.replace("/auth/temp-change");
       } else {
@@ -57,6 +70,7 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
         </p>
       )}
       <form onSubmit={onSubmit} className="grid gap-3">
+        {/* Email */}
         <div className="grid gap-1">
           <label className="text-sm">Email</label>
           <input
@@ -68,6 +82,8 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
             required
           />
         </div>
+
+        {/* Password */}
         <div className="grid gap-1">
           <label className="text-sm">Password</label>
           <input
@@ -79,6 +95,8 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
             required
           />
         </div>
+
+        {/* Tenant ID */}
         <div className="grid gap-1">
           <label className="text-sm">Tenant ID</label>
           <input
@@ -86,11 +104,22 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
             className="border rounded-md px-3 py-2 text-sm font-mono"
             value={tenantId}
             onChange={(e) => setTenantId(e.target.value)}
-            placeholder="b046c6ad-527d-45ac-a291-ac485c913912"
+            placeholder="00000000-0000-0000-0000-000000000000"
             required
           />
+          {/* 🔹 Remember toggle */}
+          <label className="flex items-center gap-2 mt-1 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              checked={rememberTenant}
+              onChange={(e) => setRememberTenant(e.target.checked)}
+            />
+            Remember this Tenant ID
+          </label>
         </div>
+
         {error && <p className="text-sm text-red-600">{error}</p>}
+
         <Button type="submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
