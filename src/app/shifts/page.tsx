@@ -20,6 +20,7 @@ import {
 import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
+import { cancelSwapsThenDeleteShift } from "@/utils/cancel-swaps-then-delete";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -484,28 +485,18 @@ export default function ShiftsPage() {
   }
 
   const delMut = useMutation<string, unknown, { id: string }>({
-    mutationFn: async ({ id }) => {
-      const tid = tenantId?.trim();
-      if (!tid) throw new Error("No tenant selected");
+  mutationFn: async ({ id }) => {
+    const tid = tenantId?.trim();
+    if (!tid) throw new Error("No tenant selected");
 
-      // Step 1: probe
-      const probe = await canDeleteShift(tid, id);
-      if (!probe.can_delete) {
-        const b = probe.blockers;
-        throw new Error(
-          `Shift cannot be deleted. Blockers → Swap requests: ${b.shift_swap_requests}, Assignments: ${b.assignments}, Time entries: ${b.time_entries}`
-        );
-      }
+    if (!window.confirm("Delete this shift? Any related swap requests will be cancelled first.")) {
+      throw new Error("User cancelled");
+    }
 
-      // Step 2: confirm
-      if (!window.confirm("Delete this shift? This cannot be undone.")) {
-        throw new Error("User cancelled");
-      }
-
-      // Step 3: delete
-      await deleteShift(tid, id);
-      return id;
-    },
+    const res = await cancelSwapsThenDeleteShift(tid, id);
+    console.log(`Cancelled ${res.cancelled} swaps, deleted shift ${id}`);
+    return id;
+  },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
       toast({ title: "Shift deleted", description: `id=${vars.id}` });
