@@ -46,3 +46,41 @@ export function safeJsonParse<T>(value: string, fallback: T): T {
     return fallback;
   }
 }
+// Format integer cents as localized currency (default USD)
+export function formatCurrencyCents(
+  cents: number | null | undefined,
+  currency = "USD",
+  locale?: string
+): string {
+  if (cents == null || !Number.isFinite(Number(cents))) return "";
+  const value = Number(cents) / 100;
+  return new Intl.NumberFormat(locale ?? undefined, {
+    style: "currency",
+    currency,
+  }).format(value);
+}
+
+// Compute earnings in cents from elapsed milliseconds and hourly rate (cents/hour)
+export function earningsFromElapsedMs(
+  elapsedMs: number,
+  hourlyRateCents: number
+): number {
+  const hours = elapsedMs / 3_600_000; // 1h = 3.6M ms
+  return Math.round(hours * hourlyRateCents);
+}
+
+// Resolve hourly rate (in cents) from shift or user objects
+export function resolveHourlyRateCents(args: {
+  activeShift?: any | null;
+  sessionUser?: any | null;
+}): number | null {
+  const shiftRate =
+    args.activeShift?.hourly_rate_cents ?? args.activeShift?.pay_rate_cents ?? null;
+  if (Number.isFinite(shiftRate)) return Number(shiftRate);
+
+  const userRate =
+    args.sessionUser?.hourly_rate_cents ?? args.sessionUser?.pay_rate_cents ?? null;
+  if (Number.isFinite(userRate)) return Number(userRate);
+
+  return null;
+}

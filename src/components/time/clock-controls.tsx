@@ -1,8 +1,9 @@
 "use client";
 
+import { useToast } from "@/components/ui/use-toast";
 import { clockIn, clockOut, getClockStatus } from "@/lib/api";
 import { requireBrowserLocation } from "@/lib/location";
-import { useToast } from "@/components/ui/use-toast";
+import { earningsFromElapsedMs, formatCurrencyCents } from "@/lib/utils";
 import { isAxiosError } from "axios";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -46,6 +47,59 @@ export default function ClockControls({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
+
+  // ⏱ live timer + earnings
+const [elapsedLabel, setElapsedLabel] = useState("00:00:00");
+const [liveEarningsCents, setLiveEarningsCents] = useState<number | null>(null);
+
+// format ms -> HH:MM:SS
+const fmtElapsed = (ms: number) => {
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1_000);
+  return `${h.toString().padStart(2,"0")}:${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}`;
+};
+
+// Try to find an hourly rate (in cents) from common places.
+// If you later pass a rate via props, swap this out.
+const currentRateCents = useMemo(() => {
+  if (typeof window === "undefined") return null;
+  // possible sources you may already have on your app shell
+  const fromShift = (window as any).__activeShift?.hourly_rate_cents ?? null;
+  const fromUser  = (window as any).__sessionUser?.hourly_rate_cents ?? null;
+  const fromLSRaw = window.localStorage?.getItem("hourly_rate_cents") ?? "";
+  const fromLS    = Number(fromLSRaw);
+  const candidate = fromShift ?? fromUser ?? (Number.isFinite(fromLS) ? fromLS : null);
+  return Number.isFinite(candidate) ? Number(candidate) : null;
+}, [shiftId]);
+
+// tick every second while working
+useEffect(() => {
+  if (status !== "working" || !lastEvent?.when) {
+    setElapsedLabel("00:00:00");
+    setLiveEarningsCents(null);
+    return;
+  }
+
+  const startMs = lastEvent.when.getTime();
+
+  // prime immediately
+  const primeDiff = Date.now() - startMs;
+  setElapsedLabel(fmtElapsed(primeDiff));
+  if (currentRateCents != null) {
+    setLiveEarningsCents(earningsFromElapsedMs(primeDiff, currentRateCents));
+  }
+
+  const id = setInterval(() => {
+    const diff = Date.now() - startMs;
+    setElapsedLabel(fmtElapsed(diff));
+    if (currentRateCents != null) {
+      setLiveEarningsCents(earningsFromElapsedMs(diff, currentRateCents));
+    }
+  }, 1000);
+
+  return () => clearInterval(id);
+}, [status, lastEvent, currentUserId, currentRateCents]);
   const { toast } = useToast();
 
   const adminLike = useMemo(
@@ -250,6 +304,20 @@ export default function ClockControls({
           {lastEvent.location ? ` · ${lastEvent.location}` : ""}
         </p>
       )}
+
+      {status === "working" && (
+  <div className="mb-3 flex items-center justify-between text-sm">
+    <div className="text-slate-700 font-mono">⏱ {elapsedLabel}</div>
+    <div className="text-slate-700">
+      {currentRateCents != null && (
+        <span className="mr-3">Rate: {formatCurrencyCents(currentRateCents)}/hr</span>
+      )}
+      {liveEarningsCents != null && (
+        <span>Earned: {formatCurrencyCents(liveEarningsCents)}</span>
+      )}
+    </div>
+  </div>
+)}
 
       {status === "idle" ? (
         <button
