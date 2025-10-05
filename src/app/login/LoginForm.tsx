@@ -24,7 +24,7 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 🔹 On mount, load remembered tenant ID if available
+  // 🔹 Load remembered tenant if available
   useEffect(() => {
     const savedTenant = localStorage.getItem("remembered_tenant_id");
     if (savedTenant && !tenantId) {
@@ -102,17 +102,28 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
           <input
             type="text"
             className="border rounded-md px-3 py-2 text-sm font-mono"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
+            value={rememberTenant ? "************" : tenantId}
+            onChange={(e) => {
+              if (!rememberTenant) setTenantId(e.target.value);
+            }}
+            placeholder="************"
             required
+            readOnly={rememberTenant} // prevents edits while remembered
           />
-          {/* 🔹 Remember toggle */}
+
+          {/* Remember toggle */}
           <label className="flex items-center gap-2 mt-1 text-xs text-slate-600">
             <input
               type="checkbox"
               checked={rememberTenant}
-              onChange={(e) => setRememberTenant(e.target.checked)}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setRememberTenant(checked);
+                if (!checked) {
+                  // user unchecked — allow editing again
+                  localStorage.removeItem("remembered_tenant_id");
+                }
+              }}
             />
             Remember this Tenant ID
           </label>
