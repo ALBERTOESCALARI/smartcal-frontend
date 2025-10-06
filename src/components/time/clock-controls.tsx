@@ -154,12 +154,18 @@ const setTodayEnd = () => {
 // Try to find an hourly rate (in cents) from common places.
 // If you later pass a rate via props, swap this out.
 const currentRateCents = useMemo(() => {
-  // Prefer rate from API clock status if available
+  // 1) Prefer a local override (set when user edits rate)
+  if (typeof window !== "undefined") {
+    const raw = window.localStorage?.getItem("hourly_rate_cents_override");
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  // 2) Prefer rate from API clock status if available
   if (rateCentsFromApi != null && Number.isFinite(Number(rateCentsFromApi))) {
     return Number(rateCentsFromApi);
   }
   if (typeof window === "undefined") return null;
-  // Fallback sources you may already have on your app shell
+  // 3) Fallback sources in app shell / storage
   const fromShift = (window as any).__activeShift?.hourly_rate_cents ?? null;
   const fromUser  = (window as any).__sessionUser?.hourly_rate_cents ?? null;
   const fromLSRaw = window.localStorage?.getItem("hourly_rate_cents") ?? "";
@@ -258,6 +264,12 @@ useEffect(() => {
     setRateCentsFromApi(
       apiRate != null && Number.isFinite(Number(apiRate)) ? Number(apiRate) : null
     );
+    // If server provided a rate, clear local override so we trust backend
+    try {
+      if (apiRate != null && typeof window !== "undefined") {
+        window.localStorage.removeItem("hourly_rate_cents_override");
+      }
+    } catch { /* ignore */ }
 
     const entry = statusResponse.open_entry;
     if (entry) {
@@ -355,6 +367,7 @@ useEffect(() => {
         if (Number.isFinite(Number(cents))) {
           setRateCentsFromApi(Number(cents));
           setShowRateEditor(false);
+          try { window.localStorage.setItem("hourly_rate_cents_override", String(Math.round(v * 100))); } catch {}
           return;
         }
       } catch {
@@ -369,6 +382,7 @@ useEffect(() => {
         if (Number.isFinite(Number(cents))) {
           setRateCentsFromApi(Number(cents));
           setShowRateEditor(false);
+          try { window.localStorage.setItem("hourly_rate_cents_override", String(Math.round(v * 100))); } catch {}
           return;
         }
       } catch {
@@ -376,7 +390,11 @@ useEffect(() => {
       }
       throw new Error("No rate endpoint available");
     } catch (err) {
-      setError((prev) => prev ?? "Could not update hourly rate");
+      const detail =
+        (err as any)?.response?.data?.detail ||
+        (err as any)?.message ||
+        "Could not update hourly rate";
+      setError(detail);
     } finally {
       setSavingRate(false);
       // refresh status so live earnings pick up any server-side changes
