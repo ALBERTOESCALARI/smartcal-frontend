@@ -1219,7 +1219,8 @@ export default function ShiftsPage() {
           </div>
         </Card>
 
-        {/* Create */}
+        {/* Create (admin/scheduler only) */}
+        {isAdminOrSched && (
         <Card className="p-4 space-y-3 bg-muted/50 print:hidden">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
             <div className="md:col-span-2">
@@ -1491,6 +1492,7 @@ export default function ShiftsPage() {
             )}
           </div>
         </Card>
+        )}
 
         {/* Edit (appears when a row is selected) */}
         {editingId && (
