@@ -119,6 +119,11 @@ const loadUserRateFallback = useCallback(async () => {
     else if (data.hourly_rate != null) cents = Math.round(Number(data.hourly_rate) * 100);
     if (Number.isFinite(cents)) {
       setRateCentsFromApi(cents as number);
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("hourly_rate_cents", String(cents));
+        }
+      } catch { /* ignore */ }
     }
   } catch {
     // silent fallback
@@ -270,6 +275,12 @@ useEffect(() => {
         window.localStorage.removeItem("hourly_rate_cents_override");
       }
     } catch { /* ignore */ }
+    // Persist server rate as baseline fallback
+    try {
+      if (apiRate != null && typeof window !== "undefined") {
+        window.localStorage.setItem("hourly_rate_cents", String(Number(apiRate)));
+      }
+    } catch { /* ignore */ }
 
     const entry = statusResponse.open_entry;
     if (entry) {
@@ -368,6 +379,7 @@ useEffect(() => {
           setRateCentsFromApi(Number(cents));
           setShowRateEditor(false);
           try { window.localStorage.setItem("hourly_rate_cents_override", String(Math.round(v * 100))); } catch {}
+          try { window.localStorage.setItem("hourly_rate_cents", String(Math.round(v * 100))); } catch {}
           return;
         }
       } catch {
@@ -383,12 +395,23 @@ useEffect(() => {
           setRateCentsFromApi(Number(cents));
           setShowRateEditor(false);
           try { window.localStorage.setItem("hourly_rate_cents_override", String(Math.round(v * 100))); } catch {}
+          try { window.localStorage.setItem("hourly_rate_cents", String(Math.round(v * 100))); } catch {}
           return;
         }
       } catch {
         // ignore; handled by final catch
       }
-      throw new Error("No rate endpoint available");
+      // Local fallback: no endpoint available — apply a local override so UI and live earnings update
+      const centsLocal = Math.round(v * 100);
+      setRateCentsFromApi(centsLocal);
+      try { window.localStorage.setItem("hourly_rate_cents_override", String(centsLocal)); } catch {}
+      try { window.localStorage.setItem("hourly_rate_cents", String(centsLocal)); } catch {}
+      setShowRateEditor(false);
+      toast({
+        title: "Rate set locally",
+        description: "Using a local hourly rate for this session because no backend endpoint is available.",
+      });
+      return;
     } catch (err) {
       const detail =
         (err as any)?.response?.data?.detail ||
