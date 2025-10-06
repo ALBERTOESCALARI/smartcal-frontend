@@ -77,6 +77,20 @@ const fmtElapsed = (ms: number) => {
   return `${h.toString().padStart(2,"0")}:${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}`;
 };
 
+// Detect "lat,lng" strings and build a Google Maps link
+const isCoord = (txt?: string | null) => {
+  if (!txt) return false;
+  const m = txt.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return false;
+  const lat = parseFloat(m[1]);
+  const lon = parseFloat(m[2]);
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+};
+const coordLink = (txt: string) => {
+  const [lat, lon] = txt.split(",").map((s) => s.trim());
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat)},${encodeURIComponent(lon)}`;
+};
+
 // Try to find an hourly rate (in cents) from common places.
 // If you later pass a rate via props, swap this out.
 const currentRateCents = useMemo(() => {
@@ -460,7 +474,21 @@ useEffect(() => {
                       <tr key={r.id} className="border-t">
                         <td className="px-2 py-2">{r.clock_in ? new Date(r.clock_in).toLocaleString() : "—"}</td>
                         <td className="px-2 py-2">{r.clock_out ? new Date(r.clock_out).toLocaleString() : "—"}</td>
-                        <td className="px-2 py-2">{r.location ?? "—"}</td>
+                        <td className="px-2 py-2">
+                          {isCoord(r.location ?? null) ? (
+                            <a
+                              href={coordLink(r.location as string)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline"
+                              title="Open in Google Maps"
+                            >
+                              {r.location}
+                            </a>
+                          ) : (
+                            r.location ?? "—"
+                          )}
+                        </td>
                         <td className="px-2 py-2 text-right">{rate != null ? formatCurrencyCents(rate) + "/hr" : "—"}</td>
                         <td className="px-2 py-2 text-right">{r.earnings != null ? `$${Number(r.earnings).toFixed(2)}` : "—"}</td>
                       </tr>
