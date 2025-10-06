@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 
+
 import {
   createShift,
   fetchShifts,
@@ -911,132 +912,153 @@ export default function ShiftsPage() {
           </div>
         )}
         <ul className="space-y-2">
-          {filteredShifts.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition"
-            >
-              <div className="flex items-start gap-3 w-full">
-                {isAdminOrSched && (
-                  <input
-                    type="checkbox"
-                    className="mt-1 print:hidden"
-                    checked={isSelected(s.id)}
-                    onChange={() => toggleSelect(s.id)}
-                    aria-label={`Select shift ${s.id}`}
-                  />
-                )}
-                <div className="space-y-0.5 flex-1">
-                  <div className="font-medium flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border" title="Unit">
-                      {s.unit_id ? unitMap.get(s.unit_id) ?? "Unit" : "Unit"}
-                    </span>
-                    {s.user_id ? (
-                      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-emerald-50">
-                        {userMap.get(s.user_id) ?? "Assigned"}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-amber-50">
-                        Unassigned
-                      </span>
+          {(() => {
+            const sorted = [...filteredShifts].sort(
+              (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+            );
+            const nodes: React.ReactElement[] = [];
+            let lastKey = "";
+            for (const s of sorted) {
+              const curKey = ymd(new Date(s.start_time));
+              if (curKey !== lastKey) {
+                nodes.push(
+                  <li key={`hdr-${curKey}`} className="px-1">
+                    <div className="sticky top-0 z-10 bg-muted/40 backdrop-blur supports-[backdrop-filter]:bg-muted/30 rounded border px-2 py-1 text-xs text-muted-foreground">
+                      {new Date(s.start_time).toLocaleDateString()}
+                    </div>
+                  </li>
+                );
+                lastKey = curKey;
+              }
+              nodes.push(
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-muted/50 transition"
+                >
+                  <div className="flex items-start gap-3 w-full">
+                    {isAdminOrSched && (
+                      <input
+                        type="checkbox"
+                        className="mt-1 print:hidden"
+                        checked={isSelected(s.id)}
+                        onChange={() => toggleSelect(s.id)}
+                        aria-label={`Select shift ${s.id}`}
+                      />
                     )}
+                    <div className="space-y-0.5 flex-1">
+                      <div className="font-medium flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border" title="Unit">
+                          {s.unit_id ? unitMap.get(s.unit_id) ?? "Unit" : "Unit"}
+                        </span>
+                        {s.user_id ? (
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-emerald-50">
+                            {userMap.get(s.user_id) ?? "Assigned"}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded px-2 py-0.5 text-xs border bg-amber-50">
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm opacity-80">
+                        {new Date(s.start_time).toLocaleString()} → {new Date(s.end_time).toLocaleString()}
+                      </div>
+                      {s.notes && <div className="text-sm">{s.notes}</div>}
+                    </div>
                   </div>
-                  <div className="text-sm opacity-80">
-                    {new Date(s.start_time).toLocaleString()} → {new Date(s.end_time).toLocaleString()}
+                  <div className="flex flex-col items-end gap-2 text-right md:flex-row md:items-center md:gap-2 md:text-left">
+                    <code className="opacity-60 print:opacity-90">{s.id.slice(0, 8)}…</code>
+
+                    <div className="flex items-center gap-2 print:hidden">
+                      {isAdminOrSched ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingId(s.id);
+                              setEUnitId(s.unit_id || "");
+                              setEUserId(s.user_id || "");
+                              setEStart(toDatetimeLocalInput(new Date(s.start_time)));
+                              setEEnd(toDatetimeLocalInput(new Date(s.end_time)));
+                              setEStatus(s.status || "");
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setViewId(s.id)}>
+                            View
+                          </Button>
+                          {/* Row delete — confirm happens inside mutation */}
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={delMut.isPending && deletingId === s.id}
+                            onClick={() => {
+                              setDeletingId(s.id);
+                              delMut.mutate({ id: s.id }, { onSettled: () => setDeletingId("") });
+                              setSelectedShiftIds((prev) => {
+                                const n = new Set(prev);
+                                n.delete(s.id);
+                                return n;
+                              });
+                            }}
+                          >
+                            {delMut.isPending && deletingId === s.id ? "Archiving…" : "Archive"}
+                          </Button>
+
+                          {!s.user_id && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled={takeMut.isPending}
+                              onClick={() => {
+                                const pre = hasMyOverlapFor(s.id);
+                                if (pre.conflict) {
+                                  toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
+                                  return;
+                                }
+                                takeMut.mutate(s.id);
+                              }}
+                            >
+                              {takeMut.isPending ? "Taking…" : "Sign up"}
+                            </Button>
+                          )}
+                          {s.user_id === currentUserId && (
+                            <Button variant="outline" size="sm" disabled={releaseMut.isPending} onClick={() => releaseMut.mutate(s.id)}>
+                              {releaseMut.isPending ? "Releasing…" : "Release"}
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {!s.user_id && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled={takeMut.isPending}
+                              onClick={() => {
+                                const pre = hasMyOverlapFor(s.id);
+                                if (pre.conflict) {
+                                  toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
+                                  return;
+                                }
+                                takeMut.mutate(s.id);
+                              }}
+                            >
+                              {takeMut.isPending ? "Taking…" : "Sign up"}
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                  {s.notes && <div className="text-sm">{s.notes}</div>}
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2 text-right md:flex-row md:items-center md:gap-2 md:text-left">
-                <code className="opacity-60 print:opacity-90">{s.id.slice(0, 8)}…</code>
-
-                <div className="flex items-center gap-2 print:hidden">
-                  {isAdminOrSched ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingId(s.id);
-                          setEUnitId(s.unit_id || "");
-                          setEUserId(s.user_id || "");
-                          setEStart(toDatetimeLocalInput(new Date(s.start_time)));
-                          setEEnd(toDatetimeLocalInput(new Date(s.end_time)));
-                          setEStatus(s.status || "");
-                          window.scrollTo({ top: 0, behavior: "smooth" });
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setViewId(s.id)}>
-                        View
-                      </Button>
-                      {/* Row delete — confirm happens inside mutation */}
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={delMut.isPending && deletingId === s.id}
-                        onClick={() => {
-                          setDeletingId(s.id);
-                          delMut.mutate({ id: s.id }, { onSettled: () => setDeletingId("") });
-                          setSelectedShiftIds((prev) => {
-                            const n = new Set(prev);
-                            n.delete(s.id);
-                            return n;
-                          });
-                        }}
-                      >
-                        {delMut.isPending && deletingId === s.id ? "Archiving…" : "Archive"}
-                      </Button>
-
-                      {!s.user_id && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          disabled={takeMut.isPending}
-                          onClick={() => {
-                            const pre = hasMyOverlapFor(s.id);
-                            if (pre.conflict) {
-                              toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
-                              return;
-                            }
-                            takeMut.mutate(s.id);
-                          }}
-                        >
-                          {takeMut.isPending ? "Taking…" : "Sign up"}
-                        </Button>
-                      )}
-                      {s.user_id === currentUserId && (
-                        <Button variant="outline" size="sm" disabled={releaseMut.isPending} onClick={() => releaseMut.mutate(s.id)}>
-                          {releaseMut.isPending ? "Releasing…" : "Release"}
-                        </Button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {!s.user_id && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          disabled={takeMut.isPending}
-                          onClick={() => {
-                            const pre = hasMyOverlapFor(s.id);
-                            if (pre.conflict) {
-                              toast({ title: "Overlap", description: "You already have a shift that overlaps this time." });
-                              return;
-                            }
-                            takeMut.mutate(s.id);
-                          }}
-                        >
-                          {takeMut.isPending ? "Taking…" : "Sign up"}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
+                </li>
+              );
+            }
+            return nodes;
+          })()}
         </ul>
       </>
     );
@@ -1625,7 +1647,7 @@ export default function ShiftsPage() {
                         bulkDelMut.mutate(ids);
                       }}
                     >
-                      {bulkDelMut.isPending ? "Deleting…" : `Archive ${selectedShiftIds.size} selected`}
+                      {bulkDelMut.isPending ? "Archiving…" : `Archive ${selectedShiftIds.size} selected`}
                     </Button>
                   )}
                 </>
