@@ -344,10 +344,34 @@ useEffect(() => {
       if (endIso) params.end = endIso;
 
       const { data } = await api.get<HistoryRow[]>("/time/me", { params });
+
+      // Fill in missing earnings on the client
+      const withComputed = data.map((r) => {
+        // Leave existing earnings intact if backend provided them
+        if (r.earnings != null) return r;
+
+        // Pick a rate (cents): row-specific -> server -> current
+        const rateCentsCandidate =
+          (typeof r.hourly_rate_cents === "number" && Number.isFinite(r.hourly_rate_cents) && r.hourly_rate_cents > 0
+            ? r.hourly_rate_cents
+            : (serverRateCents ?? currentRateCents ?? null));
+
+        if (!rateCentsCandidate || !r.clock_in) return r;
+
+        const startMs = new Date(r.clock_in).getTime();
+        const endMs = r.clock_out ? new Date(r.clock_out).getTime() : Date.now();
+
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return r;
+
+        // Compute cents, store dollars
+        const cents = earningsFromElapsedMs(endMs - startMs, rateCentsCandidate);
+        return { ...r, earnings: Math.round(cents) / 100 };
+      });
+
       // optional client-side search by substring on location or timestamps
       const q = histQuery.trim().toLowerCase();
       const filtered = q
-        ? data.filter((r) =>
+        ? withComputed.filter((r) =>
             [
               r.location || "",
               r.clock_in || "",
@@ -358,7 +382,8 @@ useEffect(() => {
               .toLowerCase()
               .includes(q)
           )
-        : data;
+        : withComputed;
+
       setHistoryRows(filtered);
     } catch (e) {
       console.error("Failed to load history", e);
@@ -366,7 +391,7 @@ useEffect(() => {
     } finally {
       setHistoryLoading(false);
     }
-  }, [histStartDate, histStartTime, histEndDate, histEndTime, histQuery]);
+  }, [histStartDate, histStartTime, histEndDate, histEndTime, histQuery, serverRateCents, currentRateCents]);
 
   const hydrateStatus = useCallback(async () => {
     const statusResponse = await getClockStatus();
