@@ -162,53 +162,56 @@ export default function AppShell({ children }: Readonly<AppShellProps>) {
     }
   }, [pathname]);
 
+  // Helpers to reduce complexity in the /auth/me loader
+  function buildMePayload(data: MeResponse | null | undefined): MeUser | null {
+    if (!data) return null;
+    const u = data.user;
+    if (u?.email) {
+      return {
+        id: u.id ?? data.id,
+        email: u.email,
+        name: data.name ?? u.name ?? undefined,
+        employee_id: data.employee_id ?? u.employee_id ?? undefined,
+        role: data.role ?? u.role ?? undefined,
+      };
+    }
+    return null;
+  }
+  function pickTenantId(data: MeResponse | null | undefined): string | undefined {
+    if (!data) return undefined;
+    const candidates = [
+      data.tenant_id,
+      data.user?.tenant_id,
+      data.tenant?.id,
+      Array.isArray(data.tenants) && data.tenants.length === 1 ? data.tenants[0]?.id : undefined,
+    ].filter((c): c is string => typeof c === "string" && c.length > 0);
+    return candidates[0];
+  }
   // Server-confirmed auth state via /auth/me
   useEffect(() => {
     if (!mounted) return;
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    setLoadingMe(true);
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const meUrl = API_BASE ? `${API_BASE}/auth/me` : "/auth/me";
+  
+    setLoadingMe(true);
     const loadMe = async () => {
       try {
-        const response = await fetch(meUrl, {
-          headers,
-          credentials: "include",
-        });
+        const response = await fetch(meUrl, { headers, credentials: "include" });
         if (!response.ok) {
-          // Backend said no; ensure authed is false
           setMe(null);
           setAuthed(false);
-          throw new Error(await response.text());
+          // consume body so we don't leak unhandled promise
+          try { await response.text(); } catch { /* ignore */ }
+          return;
         }
         const data: MeResponse = await response.json();
-
-        if (data?.user?.email) {
-          const mePayload: MeUser = {
-            id: data.user.id ?? data.id,
-            email: data.user.email,
-            name: data.name ?? data.user.name ?? undefined,
-            employee_id: data.employee_id ?? data.user.employee_id ?? undefined,
-            role: data.role ?? data.user.role ?? undefined,
-          };
+        const mePayload = buildMePayload(data);
+        if (mePayload) {
           setMe(mePayload);
           setAuthed(true);
-
-          const tenantCandidates = [
-            data.tenant_id,
-            data.user.tenant_id,
-            data.tenant?.id,
-            Array.isArray(data.tenants) && data.tenants.length === 1 ? data.tenants[0]?.id : undefined,
-          ].filter(
-            (candidate): candidate is string =>
-              typeof candidate === "string" && candidate.length > 0
-          );
-
-          if (tenantCandidates.length > 0) {
-            setTenantIdOnce(tenantCandidates[0]);
-          }
+          const tid = pickTenantId(data);
+          if (tid) setTenantIdOnce(tid);
         } else {
           setMe(null);
           setAuthed(false);
@@ -220,7 +223,7 @@ export default function AppShell({ children }: Readonly<AppShellProps>) {
         setLoadingMe(false);
       }
     };
-
+  
     void loadMe();
   }, [mounted, pathname]);
 

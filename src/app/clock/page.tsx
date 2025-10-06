@@ -1,5 +1,4 @@
 "use client";
-"use client";
 
 import RequireAuth from "@/components/require-auth";
 import ClockControls from "@/components/time/clock-controls";
@@ -164,36 +163,40 @@ export default function ClockPage() {
 
         <Card className="space-y-3 p-4">
           {hydrated && canRenderControls ? (
-            tenantId ? (
-              <>
-                {status ? (
-                  status.clocked_in ? (
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-green-600">✅ You are clocked in</p>
-                      <p className="text-sm font-mono text-slate-700">
-                        {elapsed || "00:00:00"}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="font-medium text-slate-600">⏸ You are clocked out</p>
-                  )
-                ) : (
-                  <p className="text-slate-500">Loading status…</p>
-                )}
+            <>
+              {tenantId && (
+                <>
+                  {status && (
+                    <>
+                      {status.clocked_in ? (
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-green-600">✅ You are clocked in</p>
+                          <p className="text-sm font-mono text-slate-700">
+                            {elapsed || "00:00:00"}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="font-medium text-slate-600">⏸ You are clocked out</p>
+                      )}
+                    </>
+                  )}
+                  {!status && <p className="text-slate-500">Loading status…</p>}
 
-                <ClockControls
-                  currentUserId={sessionUser!.id}
-                  currentUserRole={sessionUser!.role}
-                  shiftId={activeShift?.id}
-                  assignedUserId={activeShift?.user_id ?? null}
-                  className="w-full"
-                />
-              </>
-            ) : (
-              <p className="text-sm text-slate-500">
-                Select a tenant to enable clock actions.
-              </p>
-            )
+                  <ClockControls
+                    currentUserId={sessionUser!.id}
+                    currentUserRole={sessionUser!.role}
+                    shiftId={activeShift?.id}
+                    assignedUserId={activeShift?.user_id ?? null}
+                    className="w-full"
+                  />
+                </>
+              )}
+              {!tenantId && (
+                <p className="text-sm text-slate-500">
+                  Select a tenant to enable clock actions.
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-sm text-slate-500">Loading your profile…</p>
           )}

@@ -9,19 +9,15 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 
 import {
-  canDeleteShift,
   createShift,
-  deleteShift,
   fetchShifts,
   getShift,
   updateShift,
-  type DeleteBlockers,
   type Shift,
 } from "@/features/shifts/api";
 import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
-import { cancelSwapsThenDeleteShift } from "@/utils/cancel-swaps-then-delete";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -486,21 +482,22 @@ export default function ShiftsPage() {
   }
 
   const delMut = useMutation<string, unknown, { id: string }>({
-  mutationFn: async ({ id }) => {
-    const tid = tenantId?.trim();
-    if (!tid) throw new Error("No tenant selected");
+    mutationFn: async ({ id }) => {
+      const tid = tenantId?.trim();
+      if (!tid) throw new Error("No tenant selected");
 
-    if (!window.confirm("Delete this shift? Any related swap requests will be cancelled first.")) {
-      throw new Error("User cancelled");
-    }
+      if (!window.confirm("Archive this shift? It will be hidden (soft delete).")) {
+        throw new Error("User cancelled");
+      }
 
-    const res = await cancelSwapsThenDeleteShift(tid, id);
-    console.log(`Cancelled ${res.cancelled} swaps, deleted shift ${id}`);
-    return id;
-  },
+      // Soft delete: set deleted_at on the shift
+      const nowIso = new Date().toISOString();
+      await api.patch(`/shifts/${id}`, { deleted_at: nowIso }, { params: { tenant_id: tid } });
+      return id;
+    },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-      toast({ title: "Shift deleted", description: `id=${vars.id}` });
+      toast({ title: "Shift archived", description: `id=${vars.id}` });
     },
     onError: (err: unknown) => {
       const msg = getErrMsg(err) ?? "Failed to delete shift";
@@ -508,72 +505,38 @@ export default function ShiftsPage() {
     },
   });
 
-  // ✅ SAFE bulk delete (single declaration)
+  // Bulk archive (soft delete)
   const bulkDelMut = useMutation({
     mutationFn: async (ids: string[]) => {
       const tid = tenantId?.trim();
       if (!tid) throw new Error("No tenant selected");
+      if (!ids.length) return { archived: [] as string[] };
 
-      const blocked: Array<{ id: string; blockers: DeleteBlockers }> = [];
-      const deletable: string[] = [];
-
-      // Probe each id
-      for (const id of ids) {
-        // eslint-disable-next-line no-await-in-loop
-        const probe = await canDeleteShift(tid, id);
-        if (probe.can_delete) deletable.push(id);
-        else blocked.push({ id, blockers: probe.blockers });
-      }
-
-      if (deletable.length === 0) {
-        return { deleted: [] as string[], blocked };
-      }
-
-      if (!window.confirm(`Delete ${deletable.length} shift(s)? This cannot be undone.`)) {
+      if (!window.confirm(`Archive ${ids.length} shift(s)? They will be hidden (soft delete).`)) {
         throw new Error("User cancelled");
       }
 
-      // Perform deletes
-      for (const id of deletable) {
-        // eslint-disable-next-line no-await-in-loop
-        await deleteShift(tid, id);
+      const nowIso = new Date().toISOString();
+      const archived: string[] = [];
+      for (const id of ids) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await api.patch(`/shifts/${id}`, { deleted_at: nowIso }, { params: { tenant_id: tid } });
+          archived.push(id);
+        } catch (e) {
+          // continue archiving the rest; errors will be surfaced below
+          console.error("Failed to archive shift", id, e);
+        }
       }
-
-      return { deleted: deletable, blocked };
+      return { archived };
     },
-    onSuccess: (res: { deleted: string[]; blocked: Array<{ id: string; blockers: DeleteBlockers }> }) => {
+    onSuccess: (res: { archived: string[] }) => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
       clearSelection();
-
-      if (res.deleted.length && !res.blocked.length) {
-        toast({ title: `Deleted ${res.deleted.length} shift(s)` });
-        return;
-      }
-
-      const parts: string[] = [];
-      if (res.deleted.length) parts.push(`Deleted: ${res.deleted.length}`);
-      if (res.blocked.length) {
-        const bsum = res.blocked.reduce(
-          (acc, r) => {
-            acc.swap += r.blockers.shift_swap_requests;
-            acc.assign += r.blockers.assignments;
-            acc.time += r.blockers.time_entries;
-            return acc;
-          },
-          { swap: 0, assign: 0, time: 0 }
-        );
-        parts.push(
-          `Blocked: ${res.blocked.length} (Swap requests: ${bsum.swap}, Assignments: ${bsum.assign}, Time entries: ${bsum.time})`
-        );
-      }
-      toast({
-        title: "Bulk delete result",
-        description: parts.join(" • "),
-        variant: res.blocked.length ? "destructive" : undefined,
-      });
+      toast({ title: `Archived ${res.archived.length} shift(s)` });
     },
     onError: (err: unknown) => {
-      const msg = getErrMsg(err) ?? "Failed to delete shifts";
+      const msg = getErrMsg(err) ?? "Failed to archive shifts";
       toast({ title: "Error", description: msg, variant: "destructive" });
     },
   });
@@ -1023,7 +986,7 @@ export default function ShiftsPage() {
                           });
                         }}
                       >
-                        {delMut.isPending && deletingId === s.id ? "Deleting…" : "Delete"}
+                        {delMut.isPending && deletingId === s.id ? "Archiving…" : "Archive"}
                       </Button>
 
                       {!s.user_id && (
@@ -1662,7 +1625,7 @@ export default function ShiftsPage() {
                         bulkDelMut.mutate(ids);
                       }}
                     >
-                      {bulkDelMut.isPending ? "Deleting…" : `Delete ${selectedShiftIds.size} selected`}
+                      {bulkDelMut.isPending ? "Deleting…" : `Archive ${selectedShiftIds.size} selected`}
                     </Button>
                   )}
                 </>
