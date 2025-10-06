@@ -48,6 +48,11 @@ export default function ClockControls({
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
   const [rateCentsFromApi, setRateCentsFromApi] = useState<number | null>(null);
+  const [serverRateCents, setServerRateCents] = useState<number | null>(null);
+  const [overrideLocked, setOverrideLocked] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.localStorage.getItem("rate_override_locked") === "true"; } catch { return false; }
+  });
 
   // Rate editor state
   const [showRateEditor, setShowRateEditor] = useState(false);
@@ -266,13 +271,19 @@ useEffect(() => {
       statusResponse?.hourly_rate_cents ??
       statusResponse?.open_entry?.hourly_rate_cents ??
       null;
+    setServerRateCents(
+      apiRate != null && Number.isFinite(Number(apiRate)) ? Number(apiRate) : null
+    );
     setRateCentsFromApi(
       apiRate != null && Number.isFinite(Number(apiRate)) ? Number(apiRate) : null
     );
-    // If server provided a rate, clear local override so we trust backend
+    // If server provided a rate, clear local override so we trust backend (unless locked)
     try {
       if (apiRate != null && typeof window !== "undefined") {
-        window.localStorage.removeItem("hourly_rate_cents_override");
+        const locked = window.localStorage.getItem("rate_override_locked") === "true";
+        if (!locked) {
+          window.localStorage.removeItem("hourly_rate_cents_override");
+        }
       }
     } catch { /* ignore */ }
     // Persist server rate as baseline fallback
@@ -555,53 +566,105 @@ useEffect(() => {
       </div>
 
       {/* Rate display / editor */}
-      <div className="mb-3 flex items-center justify-between text-sm">
-        <div className="text-slate-700">
-          {currentRateCents != null ? (
-            <>Current rate: <span className="font-medium">{formatCurrencyCents(currentRateCents)}/hr</span></>
-          ) : (
-            <span className="text-slate-500">Rate unavailable</span>
-          )}
+      <div className="mb-3 flex flex-col gap-2 text-sm">
+        <div className="flex items-center justify-between">
+          <div className="text-slate-700">
+            {currentRateCents != null ? (
+              <>Effective rate: <span className="font-medium">{formatCurrencyCents(currentRateCents)}/hr</span></>
+            ) : (
+              <span className="text-slate-500">Rate unavailable</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {!showRateEditor ? (
+              <button
+                type="button"
+                onClick={() => setShowRateEditor(true)}
+                className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
+                title="Edit hourly rate"
+              >
+                Edit rate
+              </button>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={rateInput}
+                  onChange={(e) => setRateInput(e.target.value)}
+                  className="w-24 border rounded px-2 py-1 text-right font-mono"
+                  placeholder="0.00"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveRate()}
+                  disabled={savingRate}
+                  className="px-2 py-1 text-xs rounded bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {savingRate ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowRateEditor(false); setRateInput(rateCentsFromApi != null ? (rateCentsFromApi/100).toFixed(2) : ""); }}
+                  className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {!showRateEditor ? (
+        <div className="flex items-center justify-between text-xs text-slate-600">
+          <div>
+            Server rate:&nbsp;
+            {serverRateCents != null ? (
+              <span className="font-medium">{formatCurrencyCents(serverRateCents)}/hr</span>
+            ) : (
+              <span className="text-slate-400">unknown</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={overrideLocked}
+                onChange={(e) => {
+                  const v = e.target.checked;
+                  setOverrideLocked(v);
+                  try {
+                    if (typeof window !== "undefined") {
+                      if (v) window.localStorage.setItem("rate_override_locked", "true");
+                      else window.localStorage.removeItem("rate_override_locked");
+                    }
+                  } catch { /* ignore */ }
+                }}
+              />
+              Keep custom rate (don’t auto-replace)
+            </label>
             <button
               type="button"
-              onClick={() => setShowRateEditor(true)}
+              onClick={() => {
+                try {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.removeItem("hourly_rate_cents_override");
+                    window.localStorage.removeItem("rate_override_locked");
+                  }
+                } catch { /* ignore */ }
+                setOverrideLocked(false);
+                // Prefer server baseline immediately if available
+                if (serverRateCents != null) {
+                  setRateCentsFromApi(serverRateCents);
+                }
+                toast({ title: "Reset to server rate" });
+              }}
               className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
-              title="Edit hourly rate"
+              title="Clear custom override and use server"
             >
-              Edit rate
+              Reset to server rate
             </button>
-          ) : (
-            <>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={rateInput}
-                onChange={(e) => setRateInput(e.target.value)}
-                className="w-24 border rounded px-2 py-1 text-right font-mono"
-                placeholder="0.00"
-              />
-              <button
-                type="button"
-                onClick={() => void saveRate()}
-                disabled={savingRate}
-                className="px-2 py-1 text-xs rounded bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
-              >
-                {savingRate ? "Saving…" : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowRateEditor(false); setRateInput(rateCentsFromApi != null ? (rateCentsFromApi/100).toFixed(2) : ""); }}
-                className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-            </>
-          )}
+          </div>
         </div>
       </div>
 
