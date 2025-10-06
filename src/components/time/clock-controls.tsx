@@ -61,8 +61,10 @@ export default function ClockControls({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
-  const [histStart, setHistStart] = useState<string>("");
-  const [histEnd, setHistEnd] = useState<string>("");
+  const [histStartDate, setHistStartDate] = useState<string>("");
+  const [histStartTime, setHistStartTime] = useState<string>("");
+  const [histEndDate, setHistEndDate] = useState<string>("");
+  const [histEndTime, setHistEndTime] = useState<string>("");
   const [histQuery, setHistQuery] = useState<string>("");
 
   // ⏱ live timer + earnings
@@ -89,6 +91,32 @@ const isCoord = (txt?: string | null) => {
 const coordLink = (txt: string) => {
   const [lat, lon] = txt.split(",").map((s) => s.trim());
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat)},${encodeURIComponent(lon)}`;
+};
+
+// Combine date ('YYYY-MM-DD') and time ('HH:mm') into ISO string in local time
+const toIsoFromDateTime = (d?: string, t?: string): string | null => {
+  if (!d) return null;
+  const time = t && /^\d{2}:\d{2}$/.test(t) ? t : "00:00";
+  const dt = new Date(`${d}T${time}`);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+};
+// Quick helpers to set today/now
+const setTodayStart = () => {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  setHistStartDate(`${yyyy}-${mm}-${dd}`);
+  setHistStartTime("00:00");
+};
+const setTodayEnd = () => {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  setHistEndDate(`${yyyy}-${mm}-${dd}`);
+  setHistEndTime("23:59");
 };
 
 // Try to find an hourly rate (in cents) from common places.
@@ -244,8 +272,10 @@ useEffect(() => {
       setHistoryLoading(true);
       // build params
       const params: Record<string, any> = { limit: 200 };
-      if (histStart) params.start = new Date(histStart).toISOString();
-      if (histEnd) params.end = new Date(histEnd).toISOString();
+      const startIso = toIsoFromDateTime(histStartDate, histStartTime);
+      const endIso = toIsoFromDateTime(histEndDate, histEndTime);
+      if (startIso) params.start = startIso;
+      if (endIso) params.end = endIso;
 
       const { data } = await api.get<HistoryRow[]>("/time/me", { params });
       // optional client-side search by substring on location or timestamps
@@ -270,7 +300,7 @@ useEffect(() => {
     } finally {
       setHistoryLoading(false);
     }
-  }, [histStart, histEnd, histQuery]);
+  }, [histStartDate, histStartTime, histEndDate, histEndTime, histQuery]);
 
   const hydrateStatus = useCallback(async () => {
     const statusResponse = await getClockStatus();
@@ -397,23 +427,35 @@ useEffect(() => {
           id="history-panel"
           className="mb-3 rounded border bg-white p-3 shadow-sm"
         >
-          <div className="mb-2 grid grid-cols-1 md:grid-cols-4 gap-2">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-600 w-16">Start</label>
+          <div className="mb-2 grid grid-cols-1 md:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 items-center gap-2">
+              <label className="text-xs text-slate-600 col-span-2">Start</label>
               <input
-                type="datetime-local"
-                value={histStart}
-                onChange={(e) => setHistStart(e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                type="date"
+                value={histStartDate}
+                onChange={(e) => setHistStartDate(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+              <input
+                type="time"
+                value={histStartTime}
+                onChange={(e) => setHistStartTime(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-600 w-16">End</label>
+            <div className="grid grid-cols-2 items-center gap-2">
+              <label className="text-xs text-slate-600 col-span-2">End</label>
               <input
-                type="datetime-local"
-                value={histEnd}
-                onChange={(e) => setHistEnd(e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                type="date"
+                value={histEndDate}
+                onChange={(e) => setHistEndDate(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+              <input
+                type="time"
+                value={histEndTime}
+                onChange={(e) => setHistEndTime(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
               />
             </div>
             <div className="flex items-center gap-2 md:col-span-2">
@@ -425,6 +467,24 @@ useEffect(() => {
                 placeholder="location, time, earnings…"
                 className="w-full border rounded px-2 py-1 text-sm"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => { setTodayStart(); setTodayEnd(); }}
+                className="text-xs px-2 py-1 border rounded bg-white hover:bg-gray-100"
+                title="Quick select: today"
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => { setHistStartDate(""); setHistStartTime(""); setHistEndDate(""); setHistEndTime(""); }}
+                className="text-xs px-2 py-1 border rounded bg-white hover:bg-gray-100"
+                title="Clear dates"
+              >
+                Clear Dates
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2 mb-2">
@@ -438,8 +498,10 @@ useEffect(() => {
             <button
               type="button"
               onClick={() => {
-                setHistStart("");
-                setHistEnd("");
+                setHistStartDate("");
+                setHistStartTime("");
+                setHistEndDate("");
+                setHistEndTime("");
                 setHistQuery("");
                 void loadHistory();
               }}
