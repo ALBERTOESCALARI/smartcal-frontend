@@ -49,6 +49,11 @@ export default function ClockControls({
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
   const [rateCentsFromApi, setRateCentsFromApi] = useState<number | null>(null);
 
+  // Rate editor state
+  const [showRateEditor, setShowRateEditor] = useState(false);
+  const [rateInput, setRateInput] = useState<string>("");
+  const [savingRate, setSavingRate] = useState(false);
+
   // History dropdown state & filters
   type HistoryRow = {
     id: string;
@@ -92,6 +97,33 @@ const coordLink = (txt: string) => {
   const [lat, lon] = txt.split(",").map((s) => s.trim());
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat)},${encodeURIComponent(lon)}`;
 };
+
+// Fallback: load user default rate if clock status didn't include one
+const loadUserRateFallback = useCallback(async () => {
+  try {
+    // try /auth/me first, then /users/me
+    let data: any = null;
+    try {
+      data = (await api.get("/auth/me")).data;
+    } catch {
+      try {
+        data = (await api.get("/users/me")).data;
+      } catch {
+        data = null;
+      }
+    }
+    if (!data) return;
+    // support both cents and dollars fields
+    let cents: number | null = null;
+    if (data.hourly_rate_cents != null) cents = Number(data.hourly_rate_cents);
+    else if (data.hourly_rate != null) cents = Math.round(Number(data.hourly_rate) * 100);
+    if (Number.isFinite(cents)) {
+      setRateCentsFromApi(cents as number);
+    }
+  } catch {
+    // silent fallback
+  }
+}, []);
 
 // Combine date ('YYYY-MM-DD') and time ('HH:mm') into ISO string in local time
 const toIsoFromDateTime = (d?: string, t?: string): string | null => {
@@ -308,6 +340,52 @@ useEffect(() => {
     return statusResponse;
   }, [applyClockStatus]);
 
+  const saveRate = useCallback(async () => {
+    const v = Number(rateInput);
+    if (!Number.isFinite(v) || v <= 0) {
+      setError((prev) => prev ?? "Enter a valid hourly rate (e.g. 22.50)");
+      return;
+    }
+    setSavingRate(true);
+    try {
+      // 1) Try dedicated time/rate endpoint if present
+      try {
+        const res = await api.patch("/time/rate", { hourly_rate: v, apply_to_open_entry: true });
+        const cents = res?.data?.hourly_rate_cents;
+        if (Number.isFinite(Number(cents))) {
+          setRateCentsFromApi(Number(cents));
+          setShowRateEditor(false);
+          return;
+        }
+      } catch {
+        // fall through to users/me
+      }
+      // 2) Fallback: PATCH users/me with dollars
+      try {
+        const res2 = await api.patch("/users/me", { hourly_rate: v });
+        const cents =
+          (res2?.data && Number(res2.data.hourly_rate_cents)) ||
+          Math.round(v * 100);
+        if (Number.isFinite(Number(cents))) {
+          setRateCentsFromApi(Number(cents));
+          setShowRateEditor(false);
+          return;
+        }
+      } catch {
+        // ignore; handled by final catch
+      }
+      throw new Error("No rate endpoint available");
+    } catch (err) {
+      setError((prev) => prev ?? "Could not update hourly rate");
+    } finally {
+      setSavingRate(false);
+      // refresh status so live earnings pick up any server-side changes
+      try {
+        await hydrateStatus();
+      } catch { /* noop */ }
+    }
+  }, [rateInput, hydrateStatus]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -331,12 +409,26 @@ useEffect(() => {
     };
   }, [hydrateStatus, resolveErrorMessage]);
 
+  // keep editor input in sync with current rate
+  useEffect(() => {
+    if (rateCentsFromApi != null) {
+      setRateInput((rateCentsFromApi / 100).toFixed(2));
+    }
+  }, [rateCentsFromApi]);
+
   // Auto-load history when opened
   useEffect(() => {
     if (historyOpen) {
       void loadHistory();
     }
   }, [historyOpen, loadHistory]);
+
+  // If no rate came from clock status, try to load user default
+  useEffect(() => {
+    if (rateCentsFromApi == null) {
+      void loadUserRateFallback();
+    }
+  }, [rateCentsFromApi, loadUserRateFallback]);
 
   async function handleClockIn() {
     try {
@@ -419,6 +511,57 @@ useEffect(() => {
         >
           {historyOpen ? "Hide" : "Show"} History ▾
         </button>
+      </div>
+
+      {/* Rate display / editor */}
+      <div className="mb-3 flex items-center justify-between text-sm">
+        <div className="text-slate-700">
+          {currentRateCents != null ? (
+            <>Current rate: <span className="font-medium">{formatCurrencyCents(currentRateCents)}/hr</span></>
+          ) : (
+            <span className="text-slate-500">Rate unavailable</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {!showRateEditor ? (
+            <button
+              type="button"
+              onClick={() => setShowRateEditor(true)}
+              className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
+              title="Edit hourly rate"
+            >
+              Edit rate
+            </button>
+          ) : (
+            <>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={rateInput}
+                onChange={(e) => setRateInput(e.target.value)}
+                className="w-24 border rounded px-2 py-1 text-right font-mono"
+                placeholder="0.00"
+              />
+              <button
+                type="button"
+                onClick={() => void saveRate()}
+                disabled={savingRate}
+                className="px-2 py-1 text-xs rounded bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {savingRate ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowRateEditor(false); setRateInput(rateCentsFromApi != null ? (rateCentsFromApi/100).toFixed(2) : ""); }}
+                className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Collapsible history panel */}
