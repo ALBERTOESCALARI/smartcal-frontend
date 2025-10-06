@@ -663,6 +663,78 @@ export default function ShiftsPage() {
     },
   });
 
+  // ----- Edit (update) mutation -----
+  const updateMut = useMutation({
+    mutationFn: async () => {
+      const tid = tenantId?.trim();
+      if (!tid) throw new Error("No tenant selected");
+
+      const id = editingId?.trim();
+      if (!id) throw new Error("No shift selected");
+
+      const payload: {
+        unit_id?: string;
+        user_id?: string | null;
+        start_time?: string;
+        end_time?: string;
+        status?: string;
+      } = {};
+
+      // Only include fields the admin actually changed
+      if (eUnitId) payload.unit_id = eUnitId;
+
+      if (eUserId === "__UNASSIGN__") payload.user_id = null;
+      else if (eUserId) payload.user_id = eUserId;
+
+      if (eStart) {
+        const sd = new Date(eStart);
+        if (Number.isNaN(sd.getTime())) throw new Error("Invalid start date/time");
+        payload.start_time = sd.toISOString();
+      }
+
+      if (eEnd) {
+        const ed = new Date(eEnd);
+        if (Number.isNaN(ed.getTime())) throw new Error("Invalid end date/time");
+        payload.end_time = ed.toISOString();
+      }
+
+      if (payload.start_time && payload.end_time) {
+        if (new Date(payload.end_time).getTime() <= new Date(payload.start_time).getTime()) {
+          throw new Error("End time must be after start time");
+        }
+      }
+
+      if (eStatus && eStatus.trim()) {
+        payload.status = eStatus.trim();
+      }
+
+      if (Object.keys(payload).length === 0) {
+        throw new Error("No changes to save");
+      }
+
+      return updateShift(tid, id, payload);
+    },
+    onSuccess: () => {
+      // refresh queries
+      qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
+      if (viewId) qc.invalidateQueries({ queryKey: ["shift", tenantId, viewId] });
+
+      toast({ title: "Shift updated" });
+
+      // reset edit state
+      setEditingId("");
+      setEUnitId("");
+      setEUserId("");
+      setEStart("");
+      setEEnd("");
+      setEStatus("");
+    },
+    onError: (err: unknown) => {
+      const msg = getErrMsg(err) ?? "Failed to update shift";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    },
+  });
+
   const unitMap = useMemo(() => {
     const m = new Map<string, string>();
     (unitsQ.data || []).forEach((u) => m.set(u.id, u.name));
