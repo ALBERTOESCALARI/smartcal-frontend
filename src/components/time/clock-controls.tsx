@@ -1,7 +1,7 @@
 "use client";
 
 import { useToast } from "@/components/ui/use-toast";
-import { clockIn, clockOut, getClockStatus } from "@/lib/api";
+import { api, clockIn, clockOut, getClockStatus } from "@/lib/api";
 import { requireBrowserLocation } from "@/lib/location";
 import { earningsFromElapsedMs, formatCurrencyCents } from "@/lib/utils";
 import { isAxiosError } from "axios";
@@ -47,6 +47,23 @@ export default function ClockControls({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<ClockEvent | null>(null);
+  const [rateCentsFromApi, setRateCentsFromApi] = useState<number | null>(null);
+
+  // History dropdown state & filters
+  type HistoryRow = {
+    id: string;
+    clock_in?: string | null;
+    clock_out?: string | null;
+    location?: string | null;
+    hourly_rate_cents?: number | null;
+    earnings?: number | null;
+  };
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [histStart, setHistStart] = useState<string>("");
+  const [histEnd, setHistEnd] = useState<string>("");
+  const [histQuery, setHistQuery] = useState<string>("");
 
   // ⏱ live timer + earnings
 const [elapsedLabel, setElapsedLabel] = useState("00:00:00");
@@ -63,15 +80,19 @@ const fmtElapsed = (ms: number) => {
 // Try to find an hourly rate (in cents) from common places.
 // If you later pass a rate via props, swap this out.
 const currentRateCents = useMemo(() => {
+  // Prefer rate from API clock status if available
+  if (rateCentsFromApi != null && Number.isFinite(Number(rateCentsFromApi))) {
+    return Number(rateCentsFromApi);
+  }
   if (typeof window === "undefined") return null;
-  // possible sources you may already have on your app shell
+  // Fallback sources you may already have on your app shell
   const fromShift = (window as any).__activeShift?.hourly_rate_cents ?? null;
   const fromUser  = (window as any).__sessionUser?.hourly_rate_cents ?? null;
   const fromLSRaw = window.localStorage?.getItem("hourly_rate_cents") ?? "";
   const fromLS    = Number(fromLSRaw);
   const candidate = fromShift ?? fromUser ?? (Number.isFinite(fromLS) ? fromLS : null);
   return Number.isFinite(candidate) ? Number(candidate) : null;
-}, [shiftId]);
+}, [rateCentsFromApi, shiftId]);
 
 // tick every second while working
 useEffect(() => {
@@ -155,6 +176,15 @@ useEffect(() => {
   const applyClockStatus = useCallback((statusResponse: any) => {
     setStatus(statusResponse.status === "clocked_in" ? "working" : "idle");
 
+    // Capture hourly rate (in cents) from API if provided
+    const apiRate =
+      statusResponse?.hourly_rate_cents ??
+      statusResponse?.open_entry?.hourly_rate_cents ??
+      null;
+    setRateCentsFromApi(
+      apiRate != null && Number.isFinite(Number(apiRate)) ? Number(apiRate) : null
+    );
+
     const entry = statusResponse.open_entry;
     if (entry) {
       const possibleDateFields = [
@@ -195,6 +225,39 @@ useEffect(() => {
     }
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      // build params
+      const params: Record<string, any> = { limit: 200 };
+      if (histStart) params.start = new Date(histStart).toISOString();
+      if (histEnd) params.end = new Date(histEnd).toISOString();
+
+      const { data } = await api.get<HistoryRow[]>("/time/me", { params });
+      // optional client-side search by substring on location or timestamps
+      const q = histQuery.trim().toLowerCase();
+      const filtered = q
+        ? data.filter((r) =>
+            [
+              r.location || "",
+              r.clock_in || "",
+              r.clock_out || "",
+              String(r.earnings ?? ""),
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(q)
+          )
+        : data;
+      setHistoryRows(filtered);
+    } catch (e) {
+      console.error("Failed to load history", e);
+      setHistoryRows([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [histStart, histEnd, histQuery]);
+
   const hydrateStatus = useCallback(async () => {
     const statusResponse = await getClockStatus();
     applyClockStatus(statusResponse);
@@ -223,6 +286,13 @@ useEffect(() => {
       cancelled = true;
     };
   }, [hydrateStatus, resolveErrorMessage]);
+
+  // Auto-load history when opened
+  useEffect(() => {
+    if (historyOpen) {
+      void loadHistory();
+    }
+  }, [historyOpen, loadHistory]);
 
   async function handleClockIn() {
     try {
@@ -294,6 +364,115 @@ useEffect(() => {
   return (
     <div className={"p-4 border rounded-md bg-gray-50 " + (className || "")}>
       <h2 className="text-lg font-semibold mb-2">Time Tracking</h2>
+      {/* History dropdown trigger */}
+      <div className="mb-2">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((v) => !v)}
+          className="text-sm px-3 py-1 border rounded bg-white hover:bg-gray-100"
+          aria-expanded={historyOpen}
+          aria-controls="history-panel"
+        >
+          {historyOpen ? "Hide" : "Show"} History ▾
+        </button>
+      </div>
+
+      {/* Collapsible history panel */}
+      {historyOpen && (
+        <div
+          id="history-panel"
+          className="mb-3 rounded border bg-white p-3 shadow-sm"
+        >
+          <div className="mb-2 grid grid-cols-1 md:grid-cols-4 gap-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-600 w-16">Start</label>
+              <input
+                type="datetime-local"
+                value={histStart}
+                onChange={(e) => setHistStart(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-600 w-16">End</label>
+              <input
+                type="datetime-local"
+                value={histEnd}
+                onChange={(e) => setHistEnd(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2 md:col-span-2">
+              <label className="text-xs text-slate-600 w-16">Search</label>
+              <input
+                type="search"
+                value={histQuery}
+                onChange={(e) => setHistQuery(e.target.value)}
+                placeholder="location, time, earnings…"
+                className="w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => void loadHistory()}
+              className="text-sm px-3 py-1 border rounded bg-slate-800 text-white hover:bg-slate-700"
+            >
+              {historyLoading ? "Loading…" : "Apply Filters"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setHistStart("");
+                setHistEnd("");
+                setHistQuery("");
+                void loadHistory();
+              }}
+              className="text-sm px-3 py-1 border rounded bg-white hover:bg-gray-100"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="max-h-64 overflow-auto border rounded">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-2 py-2">Clock In</th>
+                  <th className="text-left px-2 py-2">Clock Out</th>
+                  <th className="text-left px-2 py-2">Location</th>
+                  <th className="text-right px-2 py-2">Rate</th>
+                  <th className="text-right px-2 py-2">Earnings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-2 py-3 text-center text-slate-500">
+                      {historyLoading ? "Loading…" : "No entries"}
+                    </td>
+                  </tr>
+                ) : (
+                  historyRows.map((r) => {
+                    const rate = r.hourly_rate_cents ?? null;
+                    return (
+                      <tr key={r.id} className="border-t">
+                        <td className="px-2 py-2">{r.clock_in ? new Date(r.clock_in).toLocaleString() : "—"}</td>
+                        <td className="px-2 py-2">{r.clock_out ? new Date(r.clock_out).toLocaleString() : "—"}</td>
+                        <td className="px-2 py-2">{r.location ?? "—"}</td>
+                        <td className="px-2 py-2 text-right">{rate != null ? formatCurrencyCents(rate) + "/hr" : "—"}</td>
+                        <td className="px-2 py-2 text-right">{r.earnings != null ? `$${Number(r.earnings).toFixed(2)}` : "—"}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {error && <p className="text-red-600 mb-2">{error}</p>}
       {initializing && (
         <p className="text-sm text-slate-500 mb-2">Checking your current status…</p>
