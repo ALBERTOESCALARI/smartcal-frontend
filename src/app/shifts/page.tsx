@@ -271,6 +271,15 @@ function getPrimaryCredential(u: User): string {
   }
 }
 
+// Helper to detect archived shifts
+function isArchivedShift(s: Shift): boolean {
+  const anyS = s as unknown as { is_archived?: boolean; deleted_at?: string | null; status?: string | null };
+  if (anyS.is_archived === true) return true;
+  if (anyS.deleted_at) return true;
+  if (typeof anyS.status === "string" && anyS.status.toLowerCase() === "archived") return true;
+  return false;
+}
+
 export default function ShiftsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -327,6 +336,12 @@ export default function ShiftsPage() {
     enabled: Boolean(tenantId),
     retry: false,
   });
+
+  // Memoized list of active (non-archived) shifts
+  const activeShifts = useMemo(() => {
+    const list = (shiftsQ.data || []) as Shift[];
+    return list.filter((s) => !isArchivedShift(s));
+  }, [shiftsQ.data]);
 
   // Single-shift query (on view)
   const [viewId, setViewId] = useState<string>("");
@@ -543,7 +558,7 @@ export default function ShiftsPage() {
 
   // Overlap helper
   function hasMyOverlapFor(targetId: string): { conflict: boolean; conflictId?: string } {
-    const list = shiftsQ.data || [];
+    const list = activeShifts || [];
     const target = list.find((s) => s.id === targetId);
     if (!target || !currentUserId) return { conflict: false };
     for (const s of list) {
@@ -770,7 +785,7 @@ export default function ShiftsPage() {
 
   const shiftsByDay = useMemo(() => {
     const map = new Map<string, number>();
-    const list = shiftsQ.data || [];
+    const list = activeShifts || [];
     if (!tenantId || list.length === 0) return map;
 
     const monthStart = startOfMonth(calMonth);
@@ -782,11 +797,11 @@ export default function ShiftsPage() {
       map.set(key, (map.get(key) || 0) + 1);
     }
     return map;
-  }, [shiftsQ.data, calMonth, tenantId]);
+  }, [activeShifts, calMonth, tenantId]);
 
   const shiftsByDate = useMemo(() => {
     const rec: Record<string, DayShift[]> = {};
-    const list = shiftsQ.data || [];
+    const list = activeShifts || [];
     for (const s of list) {
       const sd = new Date(s.start_time);
       const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`;
@@ -805,14 +820,14 @@ export default function ShiftsPage() {
       (rec[key] ||= []).push(item);
     }
     return rec;
-  }, [shiftsQ.data, unitMap, userMap]);
+  }, [activeShifts, unitMap, userMap]);
 
   const filteredShifts = useMemo(() => {
-    const list = shiftsQ.data || [];
+    const list = activeShifts || [];
     const byDate = selectedDate ? list.filter((s) => sameDay(new Date(s.start_time), selectedDate)) : list;
     if (isAdminOrSched || viewFilter === "all") return byDate;
     return byDate.filter((s) => s.user_id === currentUserId);
-  }, [shiftsQ.data, selectedDate, isAdminOrSched, viewFilter, currentUserId]);
+  }, [activeShifts, selectedDate, isAdminOrSched, viewFilter, currentUserId]);
 
   const startDateValue = start ? new Date(start) : null;
   const endDateValue = end ? new Date(end) : null;
