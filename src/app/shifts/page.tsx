@@ -67,7 +67,9 @@ function ServerRateCard({ tenantId, visible }: { tenantId: string; visible: bool
       ) : rateQ.isLoading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : rateQ.isError ? (
-        <div className="text-sm text-red-600">Couldn’t load server rate.</div>
+        <div className="text-sm text-red-600">
+          Couldn’t load server rate{rateQ.error instanceof Error ? `: ${rateQ.error.message}` : ""}.
+        </div>
       ) : (
         <div className="flex items-end gap-2">
           <div className="flex-1">
