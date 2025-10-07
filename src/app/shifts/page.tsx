@@ -19,83 +19,8 @@ import {
 import { fetchUnits, type Unit } from "@/features/units/api";
 import { api } from "@/lib/api";
 import { loadSessionUser, type SessionUser } from "@/lib/auth";
-import { fetchTenantRate, updateTenantRate } from "@/lib/tenants";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-function ServerRateCard({ tenantId, visible }: { tenantId: string; visible: boolean }) {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const [value, setValue] = useState<string>("");
-
-  const rateQ = useQuery({
-    queryKey: ["tenant-rate", tenantId],
-    queryFn: () => fetchTenantRate(tenantId),
-    enabled: Boolean(tenantId) && visible,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (rateQ.data && typeof rateQ.data.hourly_rate !== "undefined") {
-      setValue(rateQ.data.hourly_rate ?? "");
-    }
-  }, [rateQ.data?.hourly_rate]);
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      const payload = value.trim() === "" ? null : value.trim();
-      return updateTenantRate(tenantId, payload);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tenant-rate", tenantId] });
-      qc.invalidateQueries({ queryKey: ["time-entries", tenantId] });
-      qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-      toast({ title: "Server rate saved" });
-    },
-    onError: (err: unknown) => {
-      const msg = getErrMsg(err) ?? "Failed to save server rate";
-      toast({ title: "Error", description: msg, variant: "destructive" });
-    },
-  });
-
-  if (!visible) return null;
-
-  return (
-    <Card className="p-4 space-y-2 bg-muted/50 print:hidden">
-      <div className="font-medium">Server Hourly Rate</div>
-      {!tenantId ? (
-        <div className="text-sm text-muted-foreground">Set a Tenant ID above to load the server rate.</div>
-      ) : rateQ.isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      ) : rateQ.isError ? (
-        <div className="text-sm text-red-600">
-          Couldn’t load server rate{rateQ.error instanceof Error ? `: ${rateQ.error.message}` : ""}.
-        </div>
-      ) : (
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <Label>Base hourly rate (e.g., 18.00). Leave blank to unset.</Label>
-            <Input
-              id="server-rate"
-              type="text"
-              inputMode="decimal"
-              placeholder="18.00"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </div>
-          <Button
-            type="button"
-            onClick={() => saveMut.mutate()}
-            disabled={!tenantId || saveMut.isPending}
-          >
-            {saveMut.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 // ----- Types & helpers -----
 type User = {
   id: string;
@@ -1150,7 +1075,6 @@ export default function ShiftsPage() {
 
         {/* Tenant Selector */}
         <Card className="p-4 space-y-2 bg-muted/50 print:hidden">
-        <ServerRateCard tenantId={tenantId} visible={isAdminOrSched} />
           <div className="font-medium">Tenant</div>
           <form
             onSubmit={(e) => {
