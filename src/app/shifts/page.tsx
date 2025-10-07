@@ -501,18 +501,27 @@ export default function ShiftsPage() {
       const tid = tenantId?.trim();
       if (!tid) throw new Error("No tenant selected");
 
-      if (!window.confirm("Archive this shift? It will be hidden (soft delete).")) {
+      if (!window.confirm("Permanently delete this shift? This cannot be undone.")) {
         throw new Error("User cancelled");
       }
 
-      // Soft delete: set deleted_at on the shift
-      const nowIso = new Date().toISOString();
-      await api.patch(`/shifts/${id}`, { deleted_at: nowIso }, { params: { tenant_id: tid } });
+      try {
+        await api.delete(`/shifts/${id}`, { params: { tenant_id: tid } });
+      } catch (err) {
+        const status = (err as any)?.response?.status;
+        if (status === 409) {
+          // Must be archived first; archive then retry delete
+          await api.post(`/shifts/${id}/archive`, null, { params: { tenant_id: tid } });
+          await api.delete(`/shifts/${id}`, { params: { tenant_id: tid } });
+        } else {
+          throw err;
+        }
+      }
       return id;
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["shifts", tenantId] });
-      toast({ title: "Shift archived", description: `id=${vars.id}` });
+      toast({ title: "Shift deleted", description: `id=${vars.id}` });
     },
     onError: (err: unknown) => {
       const msg = getErrMsg(err) ?? "Failed to delete shift";
@@ -531,12 +540,11 @@ export default function ShiftsPage() {
         throw new Error("User cancelled");
       }
 
-      const nowIso = new Date().toISOString();
       const archived: string[] = [];
       for (const id of ids) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          await api.patch(`/shifts/${id}`, { deleted_at: nowIso }, { params: { tenant_id: tid } });
+          await api.post(`/shifts/${id}/archive`, null, { params: { tenant_id: tid } });
           archived.push(id);
         } catch (e) {
           // continue archiving the rest; errors will be surfaced below
@@ -1019,7 +1027,7 @@ export default function ShiftsPage() {
                               });
                             }}
                           >
-                            {delMut.isPending && deletingId === s.id ? "Archiving…" : "Archive"}
+                            {delMut.isPending && deletingId === s.id ? "Deleting…" : "Delete"}
                           </Button>
 
                           {!s.user_id && (
