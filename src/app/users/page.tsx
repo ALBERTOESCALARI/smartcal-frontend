@@ -374,6 +374,11 @@ export default function UsersPage() {
 
   const [credentials, setCredentials] = React.useState<Credential>("EMT");
 
+  // Bulk reset state
+  const [bulkTemp, setBulkTemp] = React.useState<string>("");
+  const [bulkBusy, setBulkBusy] = React.useState<boolean>(false);
+  const [bulkMsg, setBulkMsg] = React.useState<string | null>(null);
+
   // ────────────────────────────────────────────────────────────────────────────
   // Effects
   // ────────────────────────────────────────────────────────────────────────────
@@ -745,6 +750,59 @@ export default function UsersPage() {
       return;
     }
     queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
+  }
+
+  async function handleBulkResetMembers() {
+    if (!tenantId) {
+      alert("Set a tenant first");
+      return;
+    }
+    if (!Array.isArray(users) || users.length === 0) {
+      alert("No users loaded");
+      return;
+    }
+    const pwd = bulkTemp.trim();
+    if (!pwd) {
+      alert("Enter a temporary password to apply");
+      return;
+    }
+    // Confirm action
+    if (!confirm("Apply this temporary password to ALL active members? This will overwrite their current passwords.")) {
+      return;
+    }
+
+    setBulkBusy(true);
+    setBulkMsg(null);
+
+    let ok = 0;
+    let fail = 0;
+
+    // Process sequentially to avoid hammering the API
+    for (const u of users) {
+      const role = String(u.role || "member").toLowerCase();
+      const isActive = u.is_active !== false;
+      if (role !== "member" || !isActive) continue;
+
+      try {
+        // Reuse existing mutation function but call directly to ensure sequential flow
+        await changeUserPassword(tenantId, u.id, {
+          // Backend should ignore this for admin-initiated resets; using the same sentinel as elsewhere
+          current_password: "TMP-ADMIN-BULK",
+          new_password: pwd,
+        });
+        ok += 1;
+      } catch (e) {
+        fail += 1;
+        // Soft-log to console for debugging
+        // eslint-disable-next-line no-console
+        console.warn("Bulk reset failed for", u.email || u.id, e);
+      }
+    }
+
+    setBulkBusy(false);
+    setBulkMsg(`Done. Updated ${ok} member${ok === 1 ? "" : "s"}${fail ? ` • Failed: ${fail}` : ""}`);
+    // Refresh user list just in case any flags change server-side
+    queryClient.invalidateQueries({ queryKey: ["users", tenantId, includeInactive] });
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1121,6 +1179,50 @@ export default function UsersPage() {
                 })}
               </div>
             ) : null}
+          </div>
+
+          {/* BULK RESET PASSWORDS FOR MEMBERS */}
+          <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Bulk reset passwords (members)</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
+              Set the <strong>same temporary password</strong> for every active member in this tenant. They should change it on first login.
+            </div>
+
+            <div style={{ display: "grid", gap: 8, maxWidth: 520 }}>
+              <label style={{ fontSize: 12 }}>
+                Temporary password to apply
+                <input
+                  type="text"
+                  value={bulkTemp}
+                  onChange={(e) => setBulkTemp(e.target.value)}
+                  placeholder="e.g. HC-Temp-2025!"
+                  className="w-full rounded-md border px-3 py-2"
+                />
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleBulkResetMembers}
+                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0}
+                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 ${bulkBusy ? 'opacity-60' : ''}`}
+                >
+                  {bulkBusy ? "Resetting…" : "Apply to all members"}
+                </button>
+                {bulkMsg ? (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: String(bulkMsg).toLowerCase().includes("fail") ? "#b91c1c" : "#16a34a",
+                    }}
+                  >
+                    {bulkMsg}
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>
+                Only affects users with role <code>member</code> and status active. Admins are skipped.
+              </div>
+            </div>
           </div>
 
           {/* Bulk import (admin only, toggle visibility in-place) */}
