@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
+
+import { completePasswordReset } from "@/features/users/api";
 
 type Props = { token: string };
 
@@ -14,16 +16,6 @@ export default function ResetCompleteClient({ token }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [show, setShow] = useState(false);
-
-  // Normalize API base once
-  const apiBase = useMemo(() => {
-    const raw =
-      process.env.NEXT_PUBLIC_API_BASE ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      "";
-    return raw.replace(/\/+$/, ""); // strip trailing slash(es)
-  }, []);
 
   // keep a ref to abort in-flight requests if user navigates away fast
   const abortRef = useRef<AbortController | null>(null);
@@ -54,11 +46,6 @@ export default function ResetCompleteClient({ token }: Props) {
       setError("Passwords do not match.");
       return;
     }
-    if (!apiBase) {
-      setError("API base URL is not configured.");
-      return;
-    }
-
     setSubmitting(true);
 
     // Abort after 15s
@@ -68,36 +55,13 @@ export default function ResetCompleteClient({ token }: Props) {
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const res = await fetch(`${apiBase}/auth/reset-complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: password }),
-        signal: controller.signal,
-      });
-
-      // Treat any 2xx as success (backend uses 204 to avoid enumeration)
-      if (res.ok) {
-        setOk(true);
-        setTimeout(() => router.push("/login"), 1500);
-        return;
-      }
-
-      // Try to surface a backend error if one exists
-      let detail = "Reset failed.";
-      try {
-        const data = await res.json();
-        if (typeof data?.detail === "string") detail = data.detail;
-      } catch {
-        // ignore parse errors
-      }
-      throw new Error(
-        detail ||
-          (res.status === 400
-            ? "This link may be invalid or expired."
-            : `Unexpected error (${res.status}).`)
-      );
+      await completePasswordReset(token, password, { signal: controller.signal });
+      setOk(true);
+      setTimeout(() => router.push("/login"), 1500);
+      return;
     } catch (err: any) {
-      if (err?.name === "AbortError") {
+      const isAbort = err?.name === "AbortError" || err?.code === "ERR_CANCELED";
+      if (isAbort) {
         setError("Request timed out. Please try again.");
       } else {
         setError(err?.message || "Network error. Please try again.");

@@ -199,13 +199,18 @@ export async function requestPasswordReset(
 /** Complete password reset (invite or reset) */
 export async function completePasswordReset(
   token: string,
-  new_password: string
+  new_password: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<void> {
   if (!new_password || new_password.length < 8) {
     throw new Error("Password must be at least 8 characters long.");
   }
   try {
-    await api.post("/auth/password/complete", { token, new_password });
+    await api.post(
+      "/auth/password/complete",
+      { token, new_password },
+      options?.signal ? { signal: options.signal } : undefined
+    );
   } catch (err) {
     surface422(err);
     throw err;
