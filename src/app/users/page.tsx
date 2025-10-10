@@ -419,10 +419,10 @@ export default function UsersPage() {
     }
   }
 
-  function startTempCountdown(expiresAt: number) {
   function isSelected(id: string) {
     return selectedIds.has(id);
   }
+
   function toggleSelected(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -431,13 +431,17 @@ export default function UsersPage() {
       return next;
     });
   }
+
   function clearSelection() {
     setSelectedIds(new Set());
   }
+
   function selectAllVisible() {
     const ids = (filteredUsers || []).map(u => u.id);
     setSelectedIds(new Set(ids));
   }
+
+  function startTempCountdown(expiresAt: number) {
     if (typeof window === "undefined") return;
     clearTempTimer();
     const update = () => {
@@ -573,8 +577,8 @@ export default function UsersPage() {
     enabled: !!tenantId,
   });
 
-  // Employee dropdown filter + name search (must come after users is declared)
-  const [selectedUserId, setSelectedUserId] = React.useState<string>(""); // blank shows none by default
+  // Default to showing all employees so the table and checkboxes are visible
+  const [selectedUserId, setSelectedUserId] = React.useState<string>("__ALL__");
   const [searchName, setSearchName] = React.useState<string>("");
 
   const filteredUsers = React.useMemo<UserRow[]>(() => {
@@ -583,13 +587,11 @@ export default function UsersPage() {
 
     // Base set based on dropdown
     let base: UserRow[] = [];
-    if (selectedUserId === "__ALL__") {
+    if (!selectedUserId || selectedUserId === "__ALL__") {
+      // blank or __ALL__ => show everything by default
       base = list;
-    } else if (selectedUserId) {
-      base = list.filter((u) => u.id === selectedUserId);
     } else {
-      // blank -> none by default unless searching
-      base = [];
+      base = list.filter((u) => u.id === selectedUserId);
     }
 
     // Apply search by name (case-insensitive) if provided
@@ -600,7 +602,7 @@ export default function UsersPage() {
     const qn = norm(q);
 
     // If blank or All, search across all; if specific user selected, still filter that base
-    const haystack = selectedUserId === "" || selectedUserId === "__ALL__" ? list : base;
+    const haystack = !selectedUserId || selectedUserId === "__ALL__" ? list : base;
     return haystack.filter((u) => (u.name ? u.name.toLowerCase().includes(qn) : false));
   }, [users, selectedUserId, searchName]);
 
@@ -1294,7 +1296,7 @@ export default function UsersPage() {
                 onChange={(e) => setSelectedUserId(e.target.value)}
                 style={{ minWidth: 200 }}
               >
-                {/* blank option shows none by default */}
+                {/* blank option shows all */}
                 <option value=""> </option>
                 <option value="__ALL__">All employees</option>
                 {(users ?? []).map((u) => {
