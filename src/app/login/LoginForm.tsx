@@ -25,7 +25,6 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forgotLink, setForgotLink] = useState("/auth/reset");
-  const [showForgotLink, setShowForgotLink] = useState(false);
 
   // 🔹 Load remembered tenant if available
   useEffect(() => {
@@ -46,7 +45,6 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
       .then((url) => {
         if (!active) return;
         setForgotLink(url || "/auth/reset");
-        setShowForgotLink(true);
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -54,7 +52,6 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
         if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") return;
         console.warn("Failed to load forgot-password link:", err);
         setForgotLink("/auth/reset");
-        setShowForgotLink(true);
       });
 
     return () => {
@@ -165,14 +162,12 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
 
-        {showForgotLink && (
-          <a
-            className="text-xs text-slate-600 underline text-center"
-            href={forgotLink}
-          >
-            Forgot password?
-          </a>
-        )}
+        <a
+          className="text-xs text-slate-600 underline text-center"
+          href={forgotLink}
+        >
+          Forgot password?
+        </a>
       </form>
     </Card>
   );

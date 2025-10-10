@@ -1,5 +1,12 @@
 // src/features/users/api.ts
+import axios from "axios";
 import { api } from "@/lib/api";
+
+const unauthenticatedAuthApi = axios.create({
+  baseURL: api.defaults.baseURL,
+  timeout: api.defaults.timeout,
+  headers: { Accept: "application/json" },
+});
 
 export type Credential = "EMT" | "Paramedic";
 
@@ -189,7 +196,7 @@ export async function requestPasswordReset(
   email: string
 ): Promise<void> {
   try {
-    await api.post("/auth/password/reset", { email, employee_id: employeeId });
+    await unauthenticatedAuthApi.post("/auth/password/reset", { email, employee_id: employeeId });
   } catch (err) {
     surface422(err);
     throw err;
@@ -201,7 +208,7 @@ export async function fetchForgotPasswordLink(
   options: { signal?: AbortSignal } = {}
 ): Promise<string> {
   try {
-    const { data } = await api.get(
+    const { data } = await unauthenticatedAuthApi.get(
       "/auth/password/forgot-link",
       options?.signal ? { signal: options.signal } : undefined
     );
@@ -240,7 +247,7 @@ export async function completePasswordReset(
     throw new Error("Password must be at least 8 characters long.");
   }
   try {
-    await api.post(
+    await unauthenticatedAuthApi.post(
       "/auth/password/complete",
       { token, new_password },
       options?.signal ? { signal: options.signal } : undefined
