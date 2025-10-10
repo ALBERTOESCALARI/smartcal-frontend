@@ -379,6 +379,9 @@ export default function UsersPage() {
   const [bulkBusy, setBulkBusy] = React.useState<boolean>(false);
   const [bulkMsg, setBulkMsg] = React.useState<string | null>(null);
 
+  // Selection state for per-user bulk actions
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+
   // ────────────────────────────────────────────────────────────────────────────
   // Effects
   // ────────────────────────────────────────────────────────────────────────────
@@ -417,6 +420,24 @@ export default function UsersPage() {
   }
 
   function startTempCountdown(expiresAt: number) {
+  function isSelected(id: string) {
+    return selectedIds.has(id);
+  }
+  function toggleSelected(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+  function selectAllVisible() {
+    const ids = (filteredUsers || []).map(u => u.id);
+    setSelectedIds(new Set(ids));
+  }
     if (typeof window === "undefined") return;
     clearTempTimer();
     const update = () => {
@@ -752,7 +773,7 @@ export default function UsersPage() {
     queryClient.invalidateQueries({ queryKey: ["users", tenantId] });
   }
 
-  async function handleBulkResetMembers() {
+  async function handleBulkResetMembers(ids?: string[]) {
     if (!tenantId) {
       alert("Set a tenant first");
       return;
@@ -766,8 +787,8 @@ export default function UsersPage() {
       alert("Enter a temporary password to apply");
       return;
     }
-    // Confirm action
-    if (!confirm("Apply this temporary password to ALL active members? This will overwrite their current passwords.")) {
+    const scopeLabel = ids && ids.length > 0 ? `the ${ids.length} selected user(s)` : "ALL active members";
+    if (!confirm(`Apply this temporary password to ${scopeLabel}? This will overwrite their current passwords.`)) {
       return;
     }
 
@@ -777,23 +798,24 @@ export default function UsersPage() {
     let ok = 0;
     let fail = 0;
 
+    const targetList = (ids && ids.length > 0)
+      ? (users || []).filter(u => ids.includes(u.id))
+      : (users || []);
+
     // Process sequentially to avoid hammering the API
-    for (const u of users) {
+    for (const u of targetList) {
       const role = String(u.role || "member").toLowerCase();
       const isActive = u.is_active !== false;
       if (role !== "member" || !isActive) continue;
 
       try {
-        // Reuse existing mutation function but call directly to ensure sequential flow
         await changeUserPassword(tenantId, u.id, {
-          // Backend should ignore this for admin-initiated resets; using the same sentinel as elsewhere
           current_password: "TMP-ADMIN-BULK",
           new_password: pwd,
         });
         ok += 1;
       } catch (e) {
         fail += 1;
-        // Soft-log to console for debugging
         // eslint-disable-next-line no-console
         console.warn("Bulk reset failed for", u.email || u.id, e);
       }
@@ -801,8 +823,8 @@ export default function UsersPage() {
 
     setBulkBusy(false);
     setBulkMsg(`Done. Updated ${ok} member${ok === 1 ? "" : "s"}${fail ? ` • Failed: ${fail}` : ""}`);
-    // Refresh user list just in case any flags change server-side
     queryClient.invalidateQueries({ queryKey: ["users", tenantId, includeInactive] });
+    clearSelection();
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1199,10 +1221,19 @@ export default function UsersPage() {
                   className="w-full rounded-md border px-3 py-2"
                 />
               </label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  onClick={handleBulkResetMembers}
+                  onClick={() => handleBulkResetMembers(Array.from(selectedIds))}
+                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || selectedIds.size === 0}
+                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 ${bulkBusy ? 'opacity-60' : ''}`}
+                  title={selectedIds.size === 0 ? "Select users below to enable" : undefined}
+                >
+                  {bulkBusy ? "Resetting…" : `Apply to selected (${selectedIds.size})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkResetMembers()}
                   disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0}
                   className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 ${bulkBusy ? 'opacity-60' : ''}`}
                 >
@@ -1218,6 +1249,9 @@ export default function UsersPage() {
                     {bulkMsg}
                   </span>
                 ) : null}
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>
+                Selected users are shown by the checkboxes in the table below.
               </div>
               <div style={{ fontSize: 12, color: "#64748b" }}>
                 Only affects users with role <code>member</code> and status active. Admins are skipped.
@@ -1296,6 +1330,17 @@ export default function UsersPage() {
               <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
                 <thead>
                   <tr>
+                    <th style={th}>
+                      <input
+                        type="checkbox"
+                        onChange={(e) => {
+                          if (e.target.checked) selectAllVisible();
+                          else clearSelection();
+                        }}
+                        checked={filteredUsers.length > 0 && filteredUsers.every(u => isSelected(u.id))}
+                        aria-label="Select all visible"
+                      />
+                    </th>
                     <th style={th}>Email</th>
                     <th style={th}>Employee ID</th>
                     <th style={th}>Name</th>
@@ -1310,6 +1355,14 @@ export default function UsersPage() {
                     const protectedUser = isProtectedEmail(u.email);
                     return (
                       <tr key={u.id}>
+                        <td style={td}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected(u.id)}
+                            onChange={() => toggleSelected(u.id)}
+                            aria-label={`Select ${u.email || u.name || u.employee_id || u.id}`}
+                          />
+                        </td>
                         <td style={td}>
                           <input
                             type="email"
@@ -1422,7 +1475,7 @@ export default function UsersPage() {
                   })}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={6} style={{ padding: 12, fontStyle: "italic", color: "#64748b" }}>
+                      <td colSpan={7} style={{ padding: 12, fontStyle: "italic", color: "#64748b" }}>
                         {selectedUserId === "" && !searchName.trim()
                           ? "Select a user or search by name."
                           : selectedUserId === "__ALL__" || searchName.trim()
