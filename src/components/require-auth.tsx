@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 function SplashScreen() {
@@ -22,6 +22,7 @@ function SplashScreen() {
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -47,6 +48,38 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [router]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base =
+          (process.env.NEXT_PUBLIC_API_URL ||
+            process.env.NEXT_PUBLIC_API_BASE ||
+            "").replace(/\/+$/, "");
+        const url = base ? `${base}/auth/me` : "/auth/me";
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(url, { credentials: "include", headers });
+        if (!res.ok) return; // don't block if endpoint fails
+        const data = await res.json();
+        if (cancelled) return;
+        const mustChange = Boolean(
+          data?.must_change_password ?? data?.user?.must_change_password
+        );
+        if (mustChange && pathname !== "/auth/force-change") {
+          router.replace("/auth/force-change");
+        }
+      } catch {
+        // ignore network errors; do not block
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, router, pathname]);
 
   if (!ready) return <SplashScreen />;
   return <>{children}</>;
