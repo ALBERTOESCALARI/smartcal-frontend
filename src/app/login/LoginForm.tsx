@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { setActiveTenantId } from "@/lib/api";
 import { login } from "@/lib/auth";
+import { fetchForgotPasswordLink } from "@/features/users/api";
 
 interface LoginFormProps {
   reason?: string;
@@ -23,14 +24,43 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
   const [rememberTenant, setRememberTenant] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forgotLink, setForgotLink] = useState("/auth/reset");
+  const [showForgotLink, setShowForgotLink] = useState(false);
 
   // 🔹 Load remembered tenant if available
   useEffect(() => {
+    if (tenantId) return;
     const savedTenant = localStorage.getItem("remembered_tenant_id");
-    if (savedTenant && !tenantId) {
+    if (savedTenant) {
       setTenantId(savedTenant);
       setRememberTenant(true);
     }
+  }, [tenantId]);
+
+  // 🔹 Fetch forgot-password link exposed by backend
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+
+    fetchForgotPasswordLink({ signal: controller.signal })
+      .then((url) => {
+        if (!active) return;
+        setForgotLink(url || "/auth/reset");
+        setShowForgotLink(true);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        const error = err as { name?: string; code?: string };
+        if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") return;
+        console.warn("Failed to load forgot-password link:", err);
+        setForgotLink("/auth/reset");
+        setShowForgotLink(true);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -134,6 +164,15 @@ export default function LoginForm({ reason, initialTenantId }: LoginFormProps) {
         <Button type="submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
+
+        {showForgotLink && (
+          <a
+            className="text-xs text-slate-600 underline text-center"
+            href={forgotLink}
+          >
+            Forgot password?
+          </a>
+        )}
       </form>
     </Card>
   );

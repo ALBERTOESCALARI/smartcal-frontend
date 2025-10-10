@@ -196,6 +196,40 @@ export async function requestPasswordReset(
   }
 }
 
+/** Retrieve the forgot-password link that the backend exposes */
+export async function fetchForgotPasswordLink(
+  options: { signal?: AbortSignal } = {}
+): Promise<string> {
+  try {
+    const { data } = await api.get(
+      "/auth/password/forgot-link",
+      options?.signal ? { signal: options.signal } : undefined
+    );
+
+    if (typeof data === "string" && data.trim()) {
+      return data.trim();
+    }
+
+    if (data && typeof data === "object") {
+      const record = data as Record<string, unknown>;
+      const candidate =
+        record.url ??
+        record.href ??
+        record.link ??
+        (record as { forgot_password_url?: unknown }).forgot_password_url ??
+        (record as { forgot_password_link?: unknown }).forgot_password_link;
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    throw new Error("Forgot password link response missing url.");
+  } catch (err) {
+    // propagate so the caller can decide how to handle fallbacks
+    throw err;
+  }
+}
+
 /** Complete password reset (invite or reset) */
 export async function completePasswordReset(
   token: string,
