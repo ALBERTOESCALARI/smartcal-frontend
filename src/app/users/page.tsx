@@ -346,6 +346,7 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selection state for per-user bulk actions
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
 
+
   // ────────────────────────────────────────────────────────────────────────────
   // Effects
   // ────────────────────────────────────────────────────────────────────────────
@@ -540,6 +541,19 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     queryFn: () => fetchUsersApi(tenantId, includeInactive),
     enabled: !!tenantId,
   });
+
+  // Number of selected users who are active members (admins/inactive are skipped)
+  const selectedEligibleCount = React.useMemo(() => {
+    const list = users || [];
+    let n = 0;
+    for (const u of list) {
+      if (!selectedIds.has(u.id)) continue;
+      const role = String(u.role || "member").toLowerCase();
+      const isActive = u.is_active !== false;
+      if (role === "member" && isActive) n += 1;
+    }
+    return n;
+  }, [users, selectedIds]);
 
   // Default to showing all employees so the table and checkboxes are visible
   const [selectedUserId, setSelectedUserId] = React.useState<string>("__ALL__");
@@ -968,10 +982,11 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
                 <button
                   type="button"
                   onClick={() => handleBulkResetMembers(Array.from(selectedIds))}
-                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0 || selectedIds.size === 0}
+                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0 || selectedEligibleCount === 0}
                   className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${bulkBusy ? 'opacity-60' : ''}`}
+                  title={selectedEligibleCount === 0 ? "Select active members (admins and inactive are skipped)" : undefined}
                 >
-                  {bulkBusy ? "Resetting…" : "Apply to selected members"}
+                  {bulkBusy ? "Resetting…" : `Apply to selected members (${selectedEligibleCount})`}
                 </button>
                 {bulkMsg ? (
                   <span
