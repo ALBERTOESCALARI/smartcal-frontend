@@ -183,6 +183,11 @@ async function fetchUsersApi(tenantId: string, includeInactive: boolean): Promis
   headers["X-Tenant-ID"] = tenantId; // ✅ add header for consistency
 
   const res = await fetch(url, { credentials: "include", headers });
+  if (res.status === 428 && typeof window !== "undefined") {
+    // Backend requires password change; force the UX path
+    window.location.replace("/auth/force-change");
+    throw new Error("Password update required");
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Failed to fetch users (${res.status})`);
