@@ -984,12 +984,25 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
                   placeholder="e.g. HC-Temp-2025!"
                   className="w-full rounded-md border px-3 py-2"
                 />
+                {bulkTemp && bulkTemp.trim().length > 0 && bulkTemp.trim().length < 8 && (
+                  <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 4 }}>
+                    Password must be at least 8 characters long.
+                  </div>
+                )}
               </label>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={() => handleBulkResetMembers(Array.from(selectedIds))}
-                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0 || selectedEligibleCount === 0}
+                  disabled={
+                    !tenantId ||
+                    bulkBusy ||
+                    !bulkTemp.trim() ||
+                    bulkTemp.trim().length < 8 ||
+                    !Array.isArray(users) ||
+                    users.length === 0 ||
+                    selectedEligibleCount === 0
+                  }
                   className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${bulkBusy ? 'opacity-60' : ''}`}
                   title={selectedEligibleCount === 0 ? "Select active members (admins and inactive are skipped)" : undefined}
                 >
