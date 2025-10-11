@@ -327,7 +327,7 @@ export default function UsersPage() {
   const [tempPw, setTempPw] = React.useState<string | null>(null);
   const [tempPwExpiresAt, setTempPwExpiresAt] = React.useState<number | null>(null);
   const [tempPwRemaining, setTempPwRemaining] = React.useState<number>(0);
-  const tempPwTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const tempPwTimerRef = React.useRef<number | null>(null);
 
   // Inline edit buffer for table rows
   const [edits, setEdits] = React.useState<
@@ -967,11 +967,11 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  onClick={() => handleBulkResetMembers()}
-                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0}
-                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 ${bulkBusy ? 'opacity-60' : ''}`}
+                  onClick={() => handleBulkResetMembers(Array.from(selectedIds))}
+                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0 || selectedIds.size === 0}
+                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 ${bulkBusy ? 'opacity-60' : ''}`}
                 >
-                  {bulkBusy ? "Resetting…" : "Apply to all members"}
+                  {bulkBusy ? "Resetting…" : "Apply to selected members"}
                 </button>
                 {bulkMsg ? (
                   <span
