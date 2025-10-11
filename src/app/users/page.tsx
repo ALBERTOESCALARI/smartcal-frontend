@@ -542,19 +542,8 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     enabled: !!tenantId,
   });
 
-  // Number of selected users who are active members (admins/inactive are skipped)
-  const selectedEligibleCount = React.useMemo(() => {
-    const list = users || [];
-    let n = 0;
-    for (const u of list) {
-      if (!selectedIds.has(u.id)) continue;
-      const role = String(u.role || "member").toLowerCase();
-      const isActive = u.is_active !== false;
-      if (role === "member" && isActive) n += 1;
-    }
-    return n;
-  }, [users, selectedIds]);
 
+  // Default to showing all employees so the table and checkboxes are visible
   // Default to showing all employees so the table and checkboxes are visible
   const [selectedUserId, setSelectedUserId] = React.useState<string>("__ALL__");
   const [searchName, setSearchName] = React.useState<string>("");
@@ -583,6 +572,19 @@ const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const haystack = !selectedUserId || selectedUserId === "__ALL__" ? list : base;
     return haystack.filter((u) => (u.name ? u.name.toLowerCase().includes(qn) : false));
   }, [users, selectedUserId, searchName]);
+
+  // Number of selected users who are active members (admins/inactive are skipped)
+  const selectedEligibleCount = React.useMemo(() => {
+    const list = filteredUsers || [];
+    let n = 0;
+    for (const u of list) {
+      if (!selectedIds.has(u.id)) continue;
+      const role = String(u.role || "member").toLowerCase();
+      const isActive = u.is_active !== false;
+      if (role === "member" && isActive) n += 1;
+    }
+    return n;
+  }, [filteredUsers, selectedIds]);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Mutations
