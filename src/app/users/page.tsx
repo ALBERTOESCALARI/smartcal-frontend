@@ -8,15 +8,11 @@ import RequireAuth from "@/components/require-auth";
 import {
   changeUserPassword,
   createUser,
-  deleteUser, // kept in case you want to revert; not used below
-  inviteExistingUsers,
-  inviteUser,
+  deleteUser,
   unlockUser,
   updateUser,
   type CreateUserPayload,
   type Credential,
-  type InviteExistingResult,
-  type InviteUserResponse,
   type User
 } from "@/features/users/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -153,34 +149,6 @@ function getCredentialValue(user: User): string {
   return "";
 }
 
-function resolveInviteLink({ invite_link, invite_token }: { invite_link?: string | null; invite_token?: string | null }): string | null {
-  if (invite_link && typeof invite_link === "string") {
-    return invite_link;
-  }
-
-  const token = typeof invite_token === "string" && invite_token.trim() ? invite_token.trim() : null;
-  if (!token) return null;
-
-  const envBase =
-    process.env.NEXT_PUBLIC_FRONTEND_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_WEB_BASE ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "";
-
-  const base = envBase.replace(/\/+$/, "");
-  if (base) {
-    return `${base}/auth/reset-complete/${encodeURIComponent(token)}`;
-  }
-
-  if (typeof window !== "undefined") {
-    const origin = window.location.origin.replace(/\/+$/, "");
-    return `${origin}/auth/reset-complete/${encodeURIComponent(token)}`;
-  }
-
-  return null;
-}
 
 const TEMP_PASSWORD_PREFIX = "TMP-";
 
@@ -349,12 +317,6 @@ export default function UsersPage() {
   const [inviteMsg, setInviteMsg] = React.useState<string | null>(null);
   const [inviteLink, setInviteLink] = React.useState<string | null>(null);
   const [showBulk, setShowBulk] = React.useState(false);
-  // Invite existing users controls
-  const [inviteSelectedBusy, setInviteSelectedBusy] = React.useState(false);
-  const [inviteExistingMsg, setInviteExistingMsg] = React.useState<string | null>(null);
-  const [inviteExistingResults, setInviteExistingResults] = React.useState<InviteExistingResult[]>([]);
-  const [inviteEmails, setInviteEmails] = React.useState(""); // comma or newline separated
-  const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Password change modal state
   const [pwOpen, setPwOpen] = React.useState(false);
@@ -365,7 +327,7 @@ export default function UsersPage() {
   const [tempPw, setTempPw] = React.useState<string | null>(null);
   const [tempPwExpiresAt, setTempPwExpiresAt] = React.useState<number | null>(null);
   const [tempPwRemaining, setTempPwRemaining] = React.useState<number>(0);
-  const tempPwTimerRef = React.useRef<number | null>(null);
+  const tempPwTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Inline edit buffer for table rows
   const [edits, setEdits] = React.useState<
@@ -378,6 +340,8 @@ export default function UsersPage() {
   const [bulkTemp, setBulkTemp] = React.useState<string>("");
   const [bulkBusy, setBulkBusy] = React.useState<boolean>(false);
   const [bulkMsg, setBulkMsg] = React.useState<string | null>(null);
+  // Timer for transient success messages
+const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Selection state for per-user bulk actions
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
@@ -396,7 +360,7 @@ export default function UsersPage() {
 
   React.useEffect(() => {
     return () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
       clearTempTimer();
     };
   }, []);
@@ -558,7 +522,7 @@ export default function UsersPage() {
         new_password: pwNew,
       });
       setPwMsg("Password updated. You can close this window.");
-      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
         setPwMsg(null);
         closePwModal();
@@ -620,7 +584,7 @@ export default function UsersPage() {
       setCredentials("EMT");
       setShowSuccess(true);
       setGeneratedPw(data?.temp_password ?? null);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
         setShowSuccess(false);
         setGeneratedPw(null);
@@ -668,34 +632,6 @@ export default function UsersPage() {
           ? `Failed to unlock (status ${status})`
           : e?.message || "Failed to unlock user";
       alert(msg);
-    },
-  });
-
-  const createInvite = useMutation<
-    InviteUserResponse,
-    unknown,
-    {
-      email: string;
-      name?: string;
-      role?: string;
-      employee_id?: string;
-      credentials: Credential;
-    }
-  >({
-    mutationFn: (payload) => inviteUser(tenantId, payload),
-    onSuccess: (data) => {
-      const link = resolveInviteLink(data ?? {});
-      setInviteLink(link);
-      if (link && typeof navigator !== "undefined" && navigator.clipboard) {
-        navigator.clipboard.writeText(link).catch(() => {});
-      }
-      setInviteMsg(link ? "Invite link generated" : "Invite created (no link returned)");
-      setTimeout(() => setInviteMsg(null), 3000);
-    },
-    onError: (err: unknown) => {
-      setInviteLink(null);
-      const msg = getErrMsg(err) || "Failed to generate invite link";
-      setInviteMsg(msg);
     },
   });
 
@@ -1009,201 +945,6 @@ export default function UsersPage() {
             ) : null}
           </form>
 
-          {/* Generate invite link */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const em = email.trim();
-              const emp = employeeId.trim();
-              if (!tenantId) return alert("Set a tenant first");
-              if (!em) return alert("Email is required");
-              createInvite.mutate({
-                email: em,
-                name: name.trim() || undefined,
-                role,
-                employee_id: emp || undefined,
-                credentials,
-              });
-            }}
-            className="rounded-lg border bg-white p-4 shadow-sm max-w-xl space-y-2"
-          >
-            <div style={{ fontWeight: 600 }}>Generate invite link (no email sent)</div>
-            <div style={{ fontSize: 12, color: "#64748b" }}>
-              Creates a one-time link so the user can set their own password. Copy and share it yourself.
-            </div>
-            <div>
-              <button
-                type="submit"
-                disabled={!tenantId || createInvite.isPending}
-                className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${createInvite.isPending ? 'opacity-60' : ''}`}
-              >
-                {createInvite.isPending ? "Generating…" : "Generate Link"}
-              </button>
-              {inviteMsg ? (
-                <span
-                  style={{
-                    marginLeft: 8,
-                    fontSize: 12,
-                    color: inviteMsg.includes("generated") || inviteMsg.includes("created") ? "#16a34a" : "#b91c1c",
-                  }}
-                >
-                  {inviteMsg}
-                </span>
-              ) : null}
-            </div>
-            {inviteLink ? (
-              <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb" }}>
-                <div style={{ fontSize: 12, marginBottom: 6 }}>Invite link</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type="text"
-                    value={inviteLink}
-                    readOnly
-                    style={{ flex: 1, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard.writeText(inviteLink).catch(() => {});
-                      }
-                    }}
-                    className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </form>
-
-          {/* Invite existing users */}
-          <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Invite existing users</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-              Generate set-password links for selected users and share them via your email client.
-            </div>
-
-            <div style={{ marginTop: 4 }}>
-              <div style={{ fontSize: 12, marginBottom: 6 }}>Invite selected emails</div>
-              <textarea
-                value={inviteEmails}
-                onChange={(e) => setInviteEmails(e.target.value)}
-                placeholder="Paste emails (comma or newline separated)"
-                rows={4}
-                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
-              />
-              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!tenantId) return alert("Set a tenant first");
-                    const list = inviteEmails
-                      .split(/[\n,]/)
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    if (list.length === 0) return alert("Add at least one email");
-                    setInviteExistingMsg(null);
-                    setInviteExistingResults([]);
-                    setInviteSelectedBusy(true);
-                    try {
-                      const res = await inviteExistingUsers(tenantId, { emails: list, only_without_password: false });
-                      const resultList = res.results ?? [];
-                      const ok = resultList.filter((r) => r.status === "invite_link_generated").length;
-                      const fail = resultList.filter((r) => r.status === "error").length;
-                      setInviteExistingMsg(`Links: ${ok} • Failed: ${fail}`);
-                      setInviteExistingResults(resultList);
-                    } catch (error: unknown) {
-                      setInviteExistingMsg(getErrMsg(error) || "Failed to invite selected");
-                      setInviteExistingResults([]);
-                    } finally {
-                      setInviteSelectedBusy(false);
-                    }
-                  }}
-                  disabled={inviteSelectedBusy || !tenantId}
-                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 ${inviteSelectedBusy ? 'opacity-60' : ''}`}
-                >
-                  {inviteSelectedBusy ? "Inviting…" : "Invite selected"}
-                </button>
-              </div>
-            </div>
-
-            {inviteExistingMsg ? (() => {
-              const lower = inviteExistingMsg.toLowerCase();
-              const color = lower.includes("fail") || lower.includes("error") ? "#b91c1c" : "#16a34a";
-              return (
-                <div style={{ fontSize: 12, marginTop: 8, color }}>
-                  {inviteExistingMsg}
-                </div>
-              );
-            })() : null}
-            {inviteExistingResults.length > 0 ? (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                {inviteExistingResults.map((result, idx) => {
-                  const hasLink = Boolean(result.invite_link);
-                  return (
-                    <div
-                      key={`${result.email}-${idx}`}
-                      style={{
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 6,
-                        padding: 8,
-                        background: hasLink ? "#f9fafb" : "#fff",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600 }}>{result.email}</span>
-                        <span style={{ fontSize: 12, color: hasLink ? "#16a34a" : result.status === "error" ? "#b91c1c" : "#64748b" }}>
-                          {result.status}
-                        </span>
-                      </div>
-                      {hasLink ? (
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <input
-                            type="text"
-                            readOnly
-                            value={result.invite_link}
-                            style={{ flex: 1, minWidth: 220, fontSize: 12, padding: 6, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff" }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (typeof navigator !== "undefined" && navigator.clipboard && result.invite_link) {
-                                navigator.clipboard.writeText(result.invite_link).catch(() => {});
-                              }
-                            }}
-                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                          >
-                            Copy Link
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!result.invite_link) return;
-                              const subject = encodeURIComponent("SmartCal invite link");
-                              const body = encodeURIComponent(
-                                `Hi ${result.email},\n\nUse this one-time link to set your password: ${result.invite_link}\n\nThis link may expire after use.`
-                              );
-                              window.location.href = `mailto:${encodeURIComponent(result.email)}?subject=${subject}&body=${body}`;
-                            }}
-                            className="rounded-md px-3 py-2 text-sm font-medium bg-white border hover:bg-neutral-50"
-                          >
-                            Email Link
-                          </button>
-                        </div>
-                      ) : null}
-                      {result.error ? (
-                        <div style={{ fontSize: 12, color: "#b91c1c" }}>Error: {result.error}</div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
 
           {/* BULK RESET PASSWORDS FOR MEMBERS */}
           <div className="rounded-lg border bg-white p-4 shadow-sm max-w-3xl">
@@ -1226,15 +967,6 @@ export default function UsersPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  onClick={() => handleBulkResetMembers(Array.from(selectedIds))}
-                  disabled={!tenantId || bulkBusy || !bulkTemp.trim() || selectedIds.size === 0}
-                  className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 ${bulkBusy ? 'opacity-60' : ''}`}
-                  title={selectedIds.size === 0 ? "Select users below to enable" : undefined}
-                >
-                  {bulkBusy ? "Resetting…" : `Apply to selected (${selectedIds.size})`}
-                </button>
-                <button
-                  type="button"
                   onClick={() => handleBulkResetMembers()}
                   disabled={!tenantId || bulkBusy || !bulkTemp.trim() || !Array.isArray(users) || users.length === 0}
                   className={`rounded-md px-3 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 ${bulkBusy ? 'opacity-60' : ''}`}
@@ -1253,10 +985,7 @@ export default function UsersPage() {
                 ) : null}
               </div>
               <div style={{ fontSize: 12, color: "#64748b" }}>
-                Selected users are shown by the checkboxes in the table below.
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>
-                Only affects users with role <code>member</code> and status active. Admins are skipped.
+              Applies to the <strong>selected users</strong> only (role <code>member</code>, active). Admins are skipped.
               </div>
             </div>
           </div>
